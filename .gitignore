@@ -12,6 +12,11 @@
 # editor/OS
 .DS_Store
 *.swp
+# generated test data & artifacts — never committed
+/fuzz/corpus/
+/Testing/
+__pycache__/
+*.pyc
 # local planning notes
 PLAN.md
 /cov-build/

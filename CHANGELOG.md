@@ -16,13 +16,20 @@ All notable changes to libzarr are documented here. The format follows
   numeric metadata fields written as JSON strings (`"level": "1"`, `"elementsize": "0"` —
   libnetcdf 4.9.x). With these, genuine NCZarr stores read bit-for-bit — including ones
   current zarr-python cannot open.
-- **GDAL and NCZarr wild fixtures**: stores written by GDAL 3.13.1 (v2 zlib + v3 gzip) and
-  libnetcdf 4.9.3 (both NCZarr modes), verified against writer-computed manifests; the
-  GDAL/NCZarr tolerances are now tested against genuine output instead of synthetic
-  reproductions.
+- **Local foreign-writer interop** (`tests/wild/`, no committed data): generator scripts
+  reproduce stores from GDAL 3.13.1, libnetcdf 4.9.3 (NCZarr), TensorStore and omero-zarr,
+  cross-checked against writer-computed manifests. Validating the GDAL/NCZarr tolerances
+  against genuine output this way surfaced the shuffle filter and string-numeral quirks
+  below (now pinned by synthetic unit tests).
 - **v2 float16 and complex dtypes** (`<f2`, `<c8`, `<c16`), read and write — dtype parity
   with v3. Complex fills use zarr-python's `[re, im]` pair form; float16 non-finite string
   fills now encode to the correct 2-byte values.
+
+### Changed
+- **No test data is committed.** Removed the checked-in wild fixtures and fuzz corpus;
+  fixtures generate synthetically at build/CI time (`fuzz/gen_seeds.py`, the zarr-python
+  conformance harness) and foreign-writer/public-store interop is validated locally via
+  `tests/wild/` and `tools/`. Format quirks stay pinned by synthetic unit tests.
 
 ## [0.2.0] - 2026-07-05
 

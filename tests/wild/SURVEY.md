@@ -46,9 +46,10 @@ Result: **9 complete arrays across 4 stores, all decoded bit-for-bit identical t
 zarr-python.** Notably two OME-Zarr microscopy pyramid levels at full resolution — 472 and
 514 blosc/lz4 uint16 chunks (~4.3 MB, ~2M real image elements each) — plus real f8
 blosc-compressed ERA5 climate coordinate arrays. The downloaded chunks are not checked in
-(size and third-party licensing); the permanent, checked-in full-data fixtures are the
-TensorStore, GDAL, NCZarr and omero-zarr stores under this directory, whose chunk bytes are
-committed and verified on every CI run.
+(size and third-party licensing). No test data is committed anywhere in this repo; the
+generator scripts here reproduce foreign-writer stores locally on demand, and the specific
+quirks they surface are pinned by synthetic unit tests plus the generated zarr-python
+conformance suite.
 
 ## Policy: when to accommodate a beyond-spec construct
 

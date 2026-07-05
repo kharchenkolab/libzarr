@@ -119,20 +119,17 @@ if(LIBZARR_BUILD_TESTS)
     target_link_libraries(libzarr_bench PRIVATE libzarr::libzarr libzarr_dev_flags)
   endif()
 
-  # Wild fixtures: stores written by foreign implementations (TensorStore,
-  # omero-zarr), verified against zarr-python-computed manifests. They use
-  # blosc/zstd/gzip, so all codec flags must be on.
-  if(NOT EMSCRIPTEN AND LIBZARR_WITH_ZLIB AND LIBZARR_WITH_BLOSC AND LIBZARR_WITH_ZSTD)
-    foreach(wild tensorstore ome_zarr gdal nczarr/zarr_mode nczarr/nczarr_mode)
-      string(MAKE_C_IDENTIFIER ${wild} wild_id)
-      add_test(NAME wild_${wild_id}
-        COMMAND conformance_tool verify-manifest ${CMAKE_CURRENT_SOURCE_DIR}/tests/wild/${wild})
-    endforeach()
-  endif()
-
   # Fuzz harnesses. The standalone replay build runs the checked-in corpus
   # under any compiler (and the sanitizers, when enabled); the libFuzzer
   # build (clang + LIBZARR_BUILD_FUZZERS) does the real fuzzing in CI.
+  # Synthetic seed corpus — generated, never committed.
+  set(LIBZARR_FUZZ_CORPUS ${CMAKE_CURRENT_BINARY_DIR}/fuzz_corpus)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_FOUND)
+    execute_process(COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/gen_seeds.py ${LIBZARR_FUZZ_CORPUS})
+  endif()
+
   set(LIBZARR_FUZZERS metadata shard_index zip)
   option(LIBZARR_BUILD_FUZZERS "Build libFuzzer harnesses (requires clang)" OFF)
   foreach(name IN LISTS LIBZARR_FUZZERS)
@@ -140,7 +137,7 @@ if(LIBZARR_BUILD_TESTS)
       add_executable(fuzz_${name}_replay fuzz/fuzz_${name}.cpp)
       target_compile_definitions(fuzz_${name}_replay PRIVATE LIBZARR_FUZZ_STANDALONE=1)
       target_link_libraries(fuzz_${name}_replay PRIVATE libzarr::libzarr libzarr_dev_flags)
-      file(GLOB libzarr_fuzz_corpus_${name} ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/${name}/*)
+      file(GLOB libzarr_fuzz_corpus_${name} ${LIBZARR_FUZZ_CORPUS}/${name}/*)
       add_test(NAME fuzz_${name}_replay
         COMMAND fuzz_${name}_replay ${libzarr_fuzz_corpus_${name}})
     endif()
