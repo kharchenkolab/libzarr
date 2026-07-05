@@ -4,7 +4,11 @@ All notable changes to libzarr are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions will follow
 [SemVer](https://semver.org) once 1.0 is reached.
 
-## [Unreleased]
+## [0.2.0] - 2026-07-05
+
+Stores written with zarr-python's out-of-the-box settings are now fully supported,
+arbitrary sub-regions can be read and written, and interop is validated against foreign
+implementations.
 
 ### Fixed
 - **Error contract under fuzzing**: nlohmann exceptions could escape metadata parsing
@@ -21,13 +25,6 @@ All notable changes to libzarr are documented here. The format follows
   v3 zstd, v3 sharded) and by omero-zarr (a pruned public IDR OME-Zarr image: 4-D uint16,
   blosc, `/` separator) are verified bit-for-bit against zarr-python-computed manifests
   (`conformance_tool verify-manifest`, `tools/make_wild_manifest.py`).
-
-## [0.2.0] - 2026-07-05
-
-Stores written with zarr-python's out-of-the-box settings are now fully supported, and
-arbitrary sub-regions can be read and written.
-
-### Added
 - **Region (hyperslab) I/O**: `Array::read_region` / `Array::write_region` read and write
   arbitrary sub-boxes in array coordinates; partially covered chunks are
   read-modify-written, and the paths work through any codec chain and through shards.
