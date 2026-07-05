@@ -1,0 +1,9 @@
+# Public zarr stores across producers, reachable as of 2026-07.
+# OME-Zarr microscopy (omero-zarr writer), IDR / EBI:
+https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr
+https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001247.zarr
+https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0101A/13457537.zarr
+https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0048A/9846151.zarr
+# Climate reanalysis (xarray/zarr writer), Google ARCO-ERA5:
+https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3
+https://storage.googleapis.com/gcp-public-data-arco-era5/co/single-level-reanalysis.zarr

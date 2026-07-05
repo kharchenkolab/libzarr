@@ -7,6 +7,10 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Wide-net survey tooling** (`tools/survey.py`, `conformance_tool probe`): fetches
+  metadata only from public zarr stores and tallies rejection reasons. First run
+  (tests/wild/SURVEY.md) probed 339 arrays across microscopy and climate producers with
+  zero rejections.
 - **v2 shuffle filter** (NCZarr writes it by default next to zlib) and a read tolerance for
   numeric metadata fields written as JSON strings (`"level": "1"`, `"elementsize": "0"` —
   libnetcdf 4.9.x). With these, genuine NCZarr stores read bit-for-bit — including ones

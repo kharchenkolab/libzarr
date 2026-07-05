@@ -357,6 +357,42 @@ int verify_manifest(const std::string& dir) {
   return 0;
 }
 
+// Survey mode: attempt metadata parse + codec resolution for every array
+// document under `dir` (chunk data not required), one line per array:
+//   OK <path>            or            REJECT <path> :: <zarr::error>
+int probe_metadata(const std::string& dir) {
+  auto store = std::make_shared<zarr::FilesystemStore>(dir, /*create=*/false);
+  int total = 0;
+  for (const std::string& key : store->list_prefix("")) {
+    std::string path;
+    const std::string v2_suffix = ".zarray";
+    const std::string v3_suffix = "zarr.json";
+    if (key == v2_suffix || zarr::detail::ends_with(key, "/" + v2_suffix)) {
+      path = key.size() == v2_suffix.size() ? "" : key.substr(0, key.size() - v2_suffix.size() - 1);
+    } else if (key == v3_suffix || zarr::detail::ends_with(key, "/" + v3_suffix)) {
+      const auto doc = zarr::v2::parse_json(*store->read(key), key);
+      if (!doc.is_object() || doc.value("node_type", "") != std::string("array")) {
+        continue;
+      }
+      path = key.size() == v3_suffix.size() ? "" : key.substr(0, key.size() - v3_suffix.size() - 1);
+    } else {
+      continue;
+    }
+    ++total;
+    try {
+      auto array = zarr::Array::open(store, path);
+      (void)array.meta();
+      std::cout << "OK " << (path.empty() ? "." : path) << "\n";
+    } catch (const zarr::error& e) {
+      std::cout << "REJECT " << (path.empty() ? "." : path) << " :: " << e.what() << "\n";
+    }
+  }
+  if (total == 0) {
+    std::cout << "REJECT . :: no array metadata found\n";
+  }
+  return 0;
+}
+
 // A zip file addressed as (parent directory store, file name).
 std::pair<std::shared_ptr<zarr::FilesystemStore>, std::string> split_zip_path(
     const std::string& file) {
@@ -542,6 +578,9 @@ int dispatch(const std::string& mode, const std::string& target) {
   if (mode == "verify-manifest") {
     return verify_manifest(target);
   }
+  if (mode == "probe") {
+    return probe_metadata(target);
+  }
   if (mode == "read-zip") {
     auto [dir, name] = split_zip_path(target);
     return verify_store(std::make_shared<zarr::ZipReader>(std::move(dir), name), target);
@@ -554,7 +593,7 @@ int dispatch(const std::string& mode, const std::string& target) {
     std::cout << "packed into " << target << "\n";
     return 0;
   }
-  std::cerr << "usage: conformance_tool read|write|write-v3|verify-manifest <dir> | "
+  std::cerr << "usage: conformance_tool read|write|write-v3|verify-manifest|probe <dir> | "
                "read-zip|write-zip <file.zip>\n";
   return 2;
 }
@@ -563,7 +602,7 @@ int dispatch(const std::string& mode, const std::string& target) {
 
 int main(int argc, char** argv) {
   if (argc != 3) {
-    std::cerr << "usage: conformance_tool read|write|write-v3|verify-manifest <dir> | "
+    std::cerr << "usage: conformance_tool read|write|write-v3|verify-manifest|probe <dir> | "
                  "read-zip|write-zip <file.zip>\n";
     return 2;
   }

@@ -97,7 +97,10 @@ with its named codec specs, including
 [`sharding_indexed`](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html).
 What we read (accept) and write (emit) is documented feature-by-feature in
 [docs/SPEC.md](docs/SPEC.md), each claim citing the test that proves it; architecture
-rationale lives in [docs/DESIGN.md](docs/DESIGN.md).
+rationale lives in [docs/DESIGN.md](docs/DESIGN.md). Interoperability is checked against
+stores written by other implementations (zarr-python, TensorStore, GDAL, netCDF/NCZarr,
+omero-zarr) — see [tests/wild/](tests/wild/) and the public-store survey in
+[tests/wild/SURVEY.md](tests/wild/SURVEY.md).
 
 ## Development
 
