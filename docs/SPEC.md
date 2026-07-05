@@ -92,7 +92,7 @@ fill forms; conformance-tested by zarr-python reading everything libzarr writes.
 | legacy accepts: `"endian"` codec name, transpose `"C"`/`"F"`, bare codec-name strings | read-only | never emitted | unit:test_v3.cpp#legacy-codec-spellings | pre-final v3 writers |
 | `dimension_names` | full (validated, preserved) | full | unit:test_v3.cpp, conf:named_dims both directions | |
 | `storage_transformers` | rejected unless empty | rejected | unit:test_v3.cpp | |
-| consolidated metadata (inline convention, zarr-specs #309) | full | opt-in only (`zarr::v3::consolidate`), never unasked | unit:test_v3.cpp#opt-in-consolidation, conf:consolidated | a convention, not yet an accepted spec |
+| consolidated metadata (inline convention, zarr-specs #309) | full | opt-in only (`zarr::v3::consolidate`), never unasked | unit:test_v3.cpp#opt-in-consolidation, conf:read-consolidated + read_back both directions vs zarr-python | a convention, not yet an accepted spec; cross-checked both ways |
 
 ## Deliberate deviations
 

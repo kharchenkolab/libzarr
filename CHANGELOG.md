@@ -46,6 +46,10 @@ All notable changes to libzarr are documented here. The format follows
   across all length/alignment cases. Speeds up the v3 crc32c codec and shard-index checks.
 
 ### Added
+- **v3 inline consolidated metadata pinned both directions** against zarr-python in the
+  conformance suite: libzarr reads every array through a zarr-python-written inline map
+  (`read-consolidated` mode), and zarr-python's `open_consolidated` reads back what libzarr
+  writes. Guards the most likely drift point (zarr-specs #309 is a convention, not spec).
 - **`Store::read_many`** — an optional batched multi-range read (order-preserving,
   `std::nullopt` for absent keys) with a default loop-over-`read_range`. Latency-bound
   backends (HTTP, object stores) override it to issue a batch of ranges concurrently or

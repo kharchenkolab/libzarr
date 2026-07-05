@@ -20,8 +20,12 @@ mkdir -p "$WORK"
 if "$PYTHON" -c "import sys, zarr; sys.exit(0 if int(zarr.__version__.split('.')[0]) >= 3 else 1)"; then
   "$PYTHON" "$HERE/write_fixtures_v3.py" "$WORK/from_python_v3"
   "$TOOL" read "$WORK/from_python_v3"
+  # v3 inline consolidated metadata, both directions:
+  #  A) zarr-python wrote it -> libzarr reads every array through the map.
+  "$TOOL" read-consolidated "$WORK/from_python_v3"
 
   "$TOOL" write-v3 "$WORK/from_libzarr_v3"
+  #  B) libzarr wrote it -> read_back.py opens via zarr.open_consolidated.
   "$PYTHON" "$HERE/read_back.py" "$WORK/from_libzarr_v3"
 fi
 

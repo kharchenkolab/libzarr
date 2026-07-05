@@ -90,13 +90,21 @@ def main() -> None:
         z = zarr.open_array(store=store, path=path, mode="r")
         verify_array(z, path)
 
-    # libzarr maintains consolidated metadata; opening through it must work.
-    if os.path.exists(os.path.join(root, ".zmetadata")):
+    # Consolidated metadata written by libzarr must open in zarr-python.
+    # v2 uses a .zmetadata document; v3 uses the inline consolidated_metadata
+    # member of the root zarr.json (zarr-specs #309 convention).
+    v2_consolidated = os.path.exists(os.path.join(root, ".zmetadata"))
+    v3_consolidated = False
+    if os.path.exists(os.path.join(root, "zarr.json")):
+        with open(os.path.join(root, "zarr.json")) as f:
+            v3_consolidated = "consolidated_metadata" in json.load(f)
+    if v2_consolidated or v3_consolidated:
         root_grp = zarr.open_consolidated(store)
         for path in sorted(paths):
             verify_array(root_grp[path], f"consolidated:{path}")
 
-    print(f"read back {len(paths)} arrays OK")
+    kind = "v3 inline" if v3_consolidated else ("v2 .zmetadata" if v2_consolidated else "none")
+    print(f"read back {len(paths)} arrays OK (consolidated: {kind})")
 
 
 if __name__ == "__main__":

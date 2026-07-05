@@ -134,7 +134,12 @@ void verify_array(const zarr::Array& array, const std::string& name) {
   }
 }
 
-int verify_store(const std::shared_ptr<zarr::Store>& store, const std::string& what) {
+// Verifies every array in `store`. When `group` is non-null, arrays are
+// opened *through* it — i.e. through its consolidated-metadata map — instead
+// of by a direct per-array metadata read; that pins the consolidated read
+// path against the writer.
+int verify_store(const std::shared_ptr<zarr::Store>& store, const std::string& what,
+                 const zarr::Group* group = nullptr) {
   int count = 0;
   int skipped = 0;  // NOLINT(misc-const-correctness): mutated only in codec-gated builds
   for (const std::string& key : store->list_prefix("")) {
@@ -167,7 +172,7 @@ int verify_store(const std::shared_ptr<zarr::Store>& store, const std::string& w
       continue;
     }
 #endif
-    verify_array(zarr::Array::open(store, path), path);
+    verify_array(group != nullptr ? group->open_array(path) : zarr::Array::open(store, path), path);
     ++count;
   }
   if (count == 0) {
@@ -577,6 +582,22 @@ int dispatch(const std::string& mode, const std::string& target) {
   }
   if (mode == "verify-manifest") {
     return verify_manifest(target);
+  }
+  if (mode == "read-consolidated") {
+    // Direction: a foreign writer's v3 store with inline consolidated
+    // metadata -> libzarr opens the root group (loading the inline map) and
+    // reads every array through it.
+    auto store = std::make_shared<zarr::FilesystemStore>(target, /*create=*/false);
+    const auto root = store->read("zarr.json");
+    if (!root) {
+      throw zarr::error(target + ": no v3 root zarr.json");
+    }
+    const auto doc = zarr::v2::parse_json(*root, "zarr.json");
+    if (!doc.is_object() || !doc.contains("consolidated_metadata")) {
+      throw zarr::error(target + ": v3 root has no inline consolidated_metadata");
+    }
+    const auto group = zarr::Group::open(store);
+    return verify_store(store, target + " [via consolidated map]", &group);
   }
   if (mode == "probe") {
     return probe_metadata(target);
