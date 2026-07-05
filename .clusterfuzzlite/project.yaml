@@ -3,7 +3,7 @@
 # future OSS-Fuzz submission. See tests/wild and fuzz/ for the harnesses.
 homepage: "https://github.com/kharchenkolab/libzarr"
 language: c++
-primary_contact: "peter.kharchenko@gmail.com"
+primary_contact: "pk.restricted@gmail.com"
 main_repo: "https://github.com/kharchenkolab/libzarr"
 fuzzing_engines:
   - libfuzzer
