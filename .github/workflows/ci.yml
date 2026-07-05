@@ -92,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y doxygen
-      - run: doxygen Doxyfile
+      - run: mkdir -p build/docs && doxygen Doxyfile
 
   # The amalgamated single header must stay generatable and compilable.
   amalgamation:

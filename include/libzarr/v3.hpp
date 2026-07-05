@@ -440,9 +440,12 @@ inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx, bool le
   if (!grid.is_object() || grid.value("name", "") != std::string("regular")) {
     throw error(ctx + ": only the 'regular' chunk_grid is supported");
   }
-  const json& grid_config = detail_v3::require(grid, "configuration", ctx + ": chunk_grid");
-  meta.chunk_shape = detail::parse_extents(
-      detail_v3::require(grid_config, "chunk_shape", ctx + ": chunk_grid"), "chunk_shape", ctx);
+  // Bind `grid_ctx` as a named lvalue: passing `ctx + "..."` directly trips
+  // gcc's -Wdangling-reference on the reference initialization below.
+  const std::string grid_ctx = ctx + ": chunk_grid";
+  const json& grid_config = detail_v3::require(grid, "configuration", grid_ctx);
+  meta.chunk_shape = detail::parse_extents(detail_v3::require(grid_config, "chunk_shape", grid_ctx),
+                                           "chunk_shape", ctx);
   if (meta.chunk_shape.size() != meta.shape.size()) {
     throw error(ctx + ": chunk_shape rank " + std::to_string(meta.chunk_shape.size()) +
                 " != shape rank " + std::to_string(meta.shape.size()));
