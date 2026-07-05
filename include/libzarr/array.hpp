@@ -15,6 +15,7 @@
 #include "libzarr/codecs.hpp"
 #include "libzarr/detail/common.hpp"
 #include "libzarr/metadata.hpp"
+#include "libzarr/sharding.hpp"
 #include "libzarr/store.hpp"
 #include "libzarr/types.hpp"
 #include "libzarr/v2.hpp"
@@ -93,6 +94,10 @@ struct ArraySpec {
   char dimension_separator = '.';
   /// v3 dimension_names (array of strings/null, rank length), or null.
   json dimension_names;
+  /// v3 sharding: shard (outer chunk) shape; each extent must be a multiple
+  /// of the corresponding `chunks` extent. Empty = unsharded. `codecs` apply
+  /// to the inner chunks; the index gets `bytes` + `crc32c`.
+  std::vector<std::uint64_t> shards;
 };
 
 /// A Zarr array bound to a Store. Value-semantics handle: cheap to move,
@@ -129,22 +134,7 @@ class Array {
     meta.chunk_shape = spec.chunks;
     meta.dtype = spec.dtype;
     meta.attributes = spec.attributes;
-    if (v3) {
-      // Canonical v3 creation: the "default" chunk-key encoding with '/'.
-      meta.key_encoding = ChunkKeyKind::v3_default;
-      meta.dimension_separator = '/';
-      if (spec.dimension_names.is_array()) {
-        if (spec.dimension_names.size() != spec.shape.size()) {
-          throw error(ctx + ": dimension_names must have rank length");
-        }
-        meta.dimension_names = spec.dimension_names;
-      }
-    } else {
-      meta.dimension_separator = spec.dimension_separator;
-      if (!spec.dimension_names.is_null()) {
-        throw error(ctx + ": dimension_names is a v3 feature");
-      }
-    }
+    apply_format_members(spec, meta, ctx);
     if (spec.fill) {
       if (spec.fill->size() != spec.dtype.itemsize) {
         throw error(ctx + ": fill is " + std::to_string(spec.fill->size()) +
@@ -234,7 +224,7 @@ class Array {
   /// Reads one chunk as a full native/C-order buffer. Missing chunks read as
   /// fill; edge chunks come back full-sized (fill-padded), per the format.
   [[nodiscard]] Bytes read_chunk(const std::vector<std::uint64_t>& index) const {
-    auto stored = store_->read(chunk_store_key(index));
+    auto stored = chunk_store_->read(chunk_store_key(index));
     if (!stored) {
       return filled_chunk();
     }
@@ -246,7 +236,8 @@ class Array {
   void write_chunk(const std::vector<std::uint64_t>& index, const void* data, std::size_t size) {
     Bytes chunk(static_cast<const std::uint8_t*>(data),
                 static_cast<const std::uint8_t*>(data) + size);
-    store_->write(chunk_store_key(index), pipeline_.encode(std::move(chunk)));
+    chunk_store_->write(chunk_store_key(index), pipeline_.encode(std::move(chunk)));
+    chunk_store_->flush();
   }
 
   /// Reads `element_count` consecutive elements of one chunk starting at
@@ -267,9 +258,9 @@ class Array {
                   std::to_string(element_count) + ") exceeds " + std::to_string(chunk_elements) +
                   " elements");
     }
-    auto stored =
-        store_->read_range(chunk_store_key(index),
-                           ByteRange::slice(element_offset * itemsize, element_count * itemsize));
+    auto stored = chunk_store_->read_range(
+        chunk_store_key(index),
+        ByteRange::slice(element_offset * itemsize, element_count * itemsize));
     if (!stored) {
       Bytes out(detail::checked_size(element_count * itemsize, "chunk range"));
       detail::fill_elements(out.data(), element_count, meta_.fill ? meta_.fill->data() : nullptr,
@@ -318,8 +309,9 @@ class Array {
       chunk_box(index, origin, box);
       detail::copy_box(in, meta_.shape, origin, chunk.data(), meta_.chunk_shape, zero, box,
                        meta_.dtype.itemsize);
-      store_->write(chunk_store_key(index), pipeline_.encode(std::move(chunk)));
+      chunk_store_->write(chunk_store_key(index), pipeline_.encode(std::move(chunk)));
     } while (detail::next_index(index, grid));
+    chunk_store_->flush();
   }
 
   /// User attributes (.zattrs).
@@ -367,13 +359,83 @@ class Array {
   }
 
  private:
+  /// Applies the format-specific ArraySpec members (chunk-key encoding,
+  /// dimension_names, shards) with their validation.
+  static void apply_format_members(const ArraySpec& spec, ArrayMeta& meta, const std::string& ctx) {
+    if (spec.format != ZarrFormat::v3) {
+      meta.dimension_separator = spec.dimension_separator;
+      if (!spec.dimension_names.is_null()) {
+        throw error(ctx + ": dimension_names is a v3 feature");
+      }
+      if (!spec.shards.empty()) {
+        throw error(ctx + ": sharding is a v3 feature");
+      }
+      return;
+    }
+    // Canonical v3 creation: the "default" chunk-key encoding with '/'.
+    meta.key_encoding = ChunkKeyKind::v3_default;
+    meta.dimension_separator = '/';
+    if (spec.dimension_names.is_array()) {
+      if (spec.dimension_names.size() != spec.shape.size()) {
+        throw error(ctx + ": dimension_names must have rank length");
+      }
+      meta.dimension_names = spec.dimension_names;
+    }
+    if (spec.shards.empty()) {
+      return;
+    }
+    if (spec.shards.size() != spec.chunks.size()) {
+      throw error(ctx + ": shards rank must match chunks rank");
+    }
+    for (std::size_t d = 0; d < spec.shards.size(); ++d) {
+      // v3 sharding spec: chunks must evenly divide the shard.
+      if (spec.shards[d] == 0 || spec.shards[d] % spec.chunks[d] != 0) {
+        throw error(ctx + ": each shard extent must be a positive multiple of the chunk extent");
+      }
+    }
+    ShardLevel level;
+    level.shard_shape = spec.shards;
+    level.index_codecs = {{"bytes", {{"endian", "little"}}}, {"crc32c", {}}};
+    meta.shard_levels.push_back(std::move(level));
+  }
+
   Array(std::shared_ptr<Store> store, std::string path, ArrayMeta meta)
       : store_(std::move(store)),
         path_(std::move(path)),
         meta_(std::move(meta)),
-        pipeline_(CodecPipeline::resolve(meta_)) {
+        pipeline_(CodecPipeline::resolve(meta_)),
+        chunk_store_(wrap_shards(store_, meta_, path_)) {
     // Materializing a chunk must be possible on this platform (wasm32!).
     detail::checked_size(pipeline_.decoded_chunk_bytes(), "chunk");
+  }
+
+  /// Builds the chunk-I/O store: the raw store for plain arrays, or a chain
+  /// of ShardStore adapters (outermost level first) for sharded ones.
+  /// Metadata I/O always uses the raw store.
+  static std::shared_ptr<Store> wrap_shards(std::shared_ptr<Store> store, const ArrayMeta& meta,
+                                            const std::string& path) {
+    std::shared_ptr<Store> chunks = std::move(store);
+    const std::string prefix = path.empty() ? "" : path + "/";
+    for (std::size_t i = 0; i < meta.shard_levels.size(); ++i) {
+      const ShardLevel& level = meta.shard_levels[i];
+      const std::vector<std::uint64_t>& inner_shape = i + 1 < meta.shard_levels.size()
+                                                          ? meta.shard_levels[i + 1].shard_shape
+                                                          : meta.chunk_shape;
+      ShardParams params;
+      params.chunk_prefix = prefix;
+      params.key_encoding = meta.key_encoding;
+      params.separator = meta.dimension_separator;
+      params.index_codecs = level.index_codecs;
+      params.index_at_end = level.index_at_end;
+      params.per_shard.resize(inner_shape.size());
+      params.inner_grid.resize(inner_shape.size());
+      for (std::size_t d = 0; d < inner_shape.size(); ++d) {
+        params.per_shard[d] = level.shard_shape[d] / inner_shape[d];
+        params.inner_grid[d] = detail::ceil_div(meta.shape[d], inner_shape[d]);
+      }
+      chunks = std::make_shared<ShardStore>(std::move(chunks), std::move(params));
+    }
+    return chunks;
   }
 
   [[nodiscard]] std::string meta_store_key() const { return v2::meta_key(path_, v2::kArraySuffix); }
@@ -410,6 +472,7 @@ class Array {
   std::string path_;
   ArrayMeta meta_;
   CodecPipeline pipeline_;
+  std::shared_ptr<Store> chunk_store_;
 };
 
 }  // namespace zarr

@@ -12,6 +12,7 @@
 #include "libzarr/codecs.hpp"
 #include "libzarr/group.hpp"
 #include "libzarr/metadata.hpp"
+#include "libzarr/sharding.hpp"
 #include "libzarr/store.hpp"
 #include "libzarr/types.hpp"
 #include "libzarr/v2.hpp"

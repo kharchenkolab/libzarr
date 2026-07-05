@@ -206,11 +206,8 @@ TEST_CASE("v3 array metadata parsing") {
     CHECK_THROWS_AS((void)zarr::v3::parse_array_meta(j, "test"), zarr::error);
     j = minimal_v3_array();
     j["codecs"] = json::array({{{"name", "sharding_indexed"}}});
-    const auto meta = zarr::v3::parse_array_meta(j, "test");
-    CHECK_THROWS_WITH_AS(
-        (void)zarr::CodecPipeline::resolve(meta),
-        "codec 'sharding_indexed' is not supported yet (sharding arrives in a later phase)",
-        zarr::error);
+    // sharding without its required configuration is a parse error
+    CHECK_THROWS_AS((void)zarr::v3::parse_array_meta(j, "test"), zarr::error);
   }
 }
 

@@ -70,6 +70,7 @@ if(LIBZARR_BUILD_TESTS)
     tests/main.cpp
     tests/test_array.cpp
     tests/test_codecs.cpp
+    tests/test_sharding.cpp
     tests/test_store.cpp
     tests/test_v2_metadata.cpp
     tests/test_v3.cpp
@@ -103,20 +104,24 @@ if(LIBZARR_BUILD_TESTS)
   # Fuzz harnesses. The standalone replay build runs the checked-in corpus
   # under any compiler (and the sanitizers, when enabled); the libFuzzer
   # build (clang + LIBZARR_BUILD_FUZZERS) does the real fuzzing in CI.
-  if(NOT EMSCRIPTEN)
-    add_executable(fuzz_metadata_replay fuzz/fuzz_metadata.cpp)
-    target_compile_definitions(fuzz_metadata_replay PRIVATE LIBZARR_FUZZ_STANDALONE=1)
-    target_link_libraries(fuzz_metadata_replay PRIVATE libzarr::libzarr libzarr_dev_flags)
-    file(GLOB libzarr_fuzz_corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/metadata/*)
-    add_test(NAME fuzz_metadata_replay COMMAND fuzz_metadata_replay ${libzarr_fuzz_corpus})
-  endif()
+  set(LIBZARR_FUZZERS metadata shard_index)
   option(LIBZARR_BUILD_FUZZERS "Build libFuzzer harnesses (requires clang)" OFF)
-  if(LIBZARR_BUILD_FUZZERS)
-    add_executable(fuzz_metadata fuzz/fuzz_metadata.cpp)
-    target_link_libraries(fuzz_metadata PRIVATE libzarr::libzarr)
-    target_compile_options(fuzz_metadata PRIVATE -fsanitize=fuzzer,address,undefined -g)
-    target_link_options(fuzz_metadata PRIVATE -fsanitize=fuzzer,address,undefined)
-  endif()
+  foreach(name IN LISTS LIBZARR_FUZZERS)
+    if(NOT EMSCRIPTEN)
+      add_executable(fuzz_${name}_replay fuzz/fuzz_${name}.cpp)
+      target_compile_definitions(fuzz_${name}_replay PRIVATE LIBZARR_FUZZ_STANDALONE=1)
+      target_link_libraries(fuzz_${name}_replay PRIVATE libzarr::libzarr libzarr_dev_flags)
+      file(GLOB libzarr_fuzz_corpus_${name} ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/${name}/*)
+      add_test(NAME fuzz_${name}_replay
+        COMMAND fuzz_${name}_replay ${libzarr_fuzz_corpus_${name}})
+    endif()
+    if(LIBZARR_BUILD_FUZZERS)
+      add_executable(fuzz_${name} fuzz/fuzz_${name}.cpp)
+      target_link_libraries(fuzz_${name} PRIVATE libzarr::libzarr)
+      target_compile_options(fuzz_${name} PRIVATE -fsanitize=fuzzer,address,undefined -g)
+      target_link_options(fuzz_${name} PRIVATE -fsanitize=fuzzer,address,undefined)
+    endif()
+  endforeach()
 
   # Examples are compiled AND run: they are the machine-checked documentation.
   set(LIBZARR_EXAMPLES quickstart)

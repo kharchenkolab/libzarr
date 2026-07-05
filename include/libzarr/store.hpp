@@ -109,6 +109,10 @@ class Store {
   /// Remove `key`; removing an absent key is a no-op.
   virtual void erase(std::string_view key) = 0;
 
+  /// Completes any buffered writes. Plain stores write through and need
+  /// nothing; adapters that assemble objects (sharding) override.
+  virtual void flush() {}
+
   /// All keys starting with `prefix` ("" or ending in '/'), sorted.
   [[nodiscard]] virtual std::vector<std::string> list_prefix(std::string_view prefix) = 0;
 

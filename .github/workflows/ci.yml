@@ -59,8 +59,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DLIBZARR_BUILD_FUZZERS=ON -DLIBZARR_WITH_ZLIB=ON
-      - run: cmake --build build --target fuzz_metadata -j
+      - run: cmake --build build --target fuzz_metadata fuzz_shard_index -j
       - run: ./build/fuzz_metadata -max_total_time=60 fuzz/corpus/metadata
+      - run: ./build/fuzz_shard_index -max_total_time=60 fuzz/corpus/shard_index
 
   sanitize:
     runs-on: ubuntu-latest

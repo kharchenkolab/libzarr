@@ -7,6 +7,12 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Sharding (`sharding_indexed`)**, read and write, including nested shards, both
+  `index_location`s on read, crc32c-verified indices, byte-range reads into shards, and
+  read-modify-write shard updates. Modeled as a `ShardStore` adapter (see docs/DESIGN.md,
+  which records the go/no-go review and memory bounds). `ArraySpec::shards` on create;
+  conformance-tested against zarr-python in both directions. Fuzz harness #3 covers shard
+  bytes.
 - **Zarr v3 write** (non-sharded): canonical, deterministic `zarr.json` emission
   (golden-byte locked); `ArraySpec.format = ZarrFormat::v3` and v3 `Group::create`; v3
   attribute writes patch metadata in place, preserving extension members; opt-in

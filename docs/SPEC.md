@@ -63,7 +63,7 @@ against zarr-python by `tests/conformance/` in CI.
 
 ## Zarr v3
 
-READ and WRITE are complete for non-sharded arrays (v3.1 core + named codec specs).
+READ and WRITE are complete, including sharding (v3.1 core + named codec specs).
 WRITE is canonical and deterministic: fixed member set, sorted keys, 4-space indent, stable
 fill forms; conformance-tested by zarr-python reading everything libzarr writes.
 
@@ -80,7 +80,10 @@ fill forms; conformance-tested by zarr-python reading everything libzarr writes.
 | codecs: `blosc` (all shuffles, all cnames) | full | full | unit:test_v3.cpp#blosc, conf:blosc_* | behind `LIBZARR_HAS_BLOSC` |
 | codecs: `crc32c` | full (checksum verified, mismatch = error) | full | unit:test_v3.cpp#crc32c, conf:crc32c + gzip_crc32c | RFC 3720 Castagnoli, not zip's CRC-32 |
 | codecs: `zstd` | rejected | rejected | unit:test_codecs.cpp | planned |
-| codecs: `sharding_indexed` | rejected with a precise error | rejected | unit:test_v3.cpp | phase 4 (go/no-go milestone) |
+| codecs: `sharding_indexed` (incl. nested) | full | full (`ArraySpec::shards`; index emits `bytes`+`crc32c`, `index_location: end`) | unit:test_sharding.cpp, conf:sharded_* both directions | modeled as a Store adapter; see docs/DESIGN.md |
+| sharding: `index_location` `end`/`start` | full | emits `end` | unit:test_sharding.cpp, fuzz:shard_index | |
+| sharding: byte-range sub-chunk reads through shards | full | n/a | unit:test_sharding.cpp#range-request | one index fetch + one range per read |
+| sharding: codecs wrapped around a shard; non-fixed-size index_codecs | rejected | rejected | unit:test_sharding.cpp#enforcement | ranges must map 1:1 onto stored bytes |
 | legacy accepts: `"endian"` codec name, transpose `"C"`/`"F"`, bare codec-name strings | read-only | never emitted | unit:test_v3.cpp#legacy-codec-spellings | pre-final v3 writers |
 | `dimension_names` | full (validated, preserved) | full | unit:test_v3.cpp, conf:named_dims both directions | |
 | `storage_transformers` | rejected unless empty | rejected | unit:test_v3.cpp | |

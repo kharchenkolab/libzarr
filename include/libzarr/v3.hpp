@@ -360,6 +360,56 @@ inline void parse_dimension_names(const json& j, ArrayMeta& meta, const std::str
   meta.dimension_names = *it;
 }
 
+/// Lowers sharding_indexed codecs into ArrayMeta::shard_levels, recursively
+/// (nested sharding stacks levels). After lowering, `codecs` holds only the
+/// innermost chunk chain.
+inline void lower_sharding(ArrayMeta& meta, const std::string& ctx) {
+  while (!meta.codecs.empty() && meta.codecs.front().name == "sharding_indexed") {
+    if (meta.codecs.size() != 1) {
+      // Ranges into a shard must map 1:1 onto stored bytes; codecs wrapped
+      // around the shard (outer transpose, whole-shard compression) break
+      // that, so they are rejected rather than silently degraded.
+      throw error(ctx +
+                  ": sharding_indexed cannot be combined with other codecs at the same "
+                  "level");
+    }
+    const json config = meta.codecs.front().configuration.is_object()
+                            ? meta.codecs.front().configuration
+                            : json::object();
+    const std::vector<std::uint64_t> inner_shape = detail::parse_extents(
+        require(config, "chunk_shape", ctx + ": sharding_indexed"), "chunk_shape", ctx);
+    if (inner_shape.size() != meta.chunk_shape.size()) {
+      throw error(ctx + ": sharding_indexed chunk_shape rank mismatch");
+    }
+    for (std::size_t d = 0; d < inner_shape.size(); ++d) {
+      // v3 sharding spec: the inner chunk shape must evenly divide the shard.
+      if (inner_shape[d] == 0 || meta.chunk_shape[d] % inner_shape[d] != 0) {
+        throw error(ctx + ": sharding_indexed chunk_shape must evenly divide the shard shape");
+      }
+    }
+
+    ShardLevel level;
+    level.shard_shape = meta.chunk_shape;
+    level.index_codecs =
+        parse_codecs(require(config, "index_codecs", ctx + ": sharding_indexed"), 1, ctx);
+    const json location = config.value("index_location", json("end"));
+    if (location != "end" && location != "start") {
+      throw error(ctx + R"(: index_location must be "end" or "start")");
+    }
+    level.index_at_end = location == "end";
+
+    meta.shard_levels.push_back(std::move(level));
+    meta.chunk_shape = inner_shape;
+    meta.codecs =
+        parse_codecs(require(config, "codecs", ctx + ": sharding_indexed"), meta.shape.size(), ctx);
+  }
+  for (const CodecSpec& codec : meta.codecs) {
+    if (codec.name == "sharding_indexed") {
+      throw error(ctx + ": sharding_indexed must be the sole codec of its level");
+    }
+  }
+}
+
 }  // namespace detail_v3
 
 /// Parses a v3 array zarr.json document into normalized ArrayMeta.
@@ -408,6 +458,7 @@ inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx, bool le
                          lenient);
   meta.codecs =
       detail_v3::parse_codecs(detail_v3::require(j, "codecs", ctx), meta.shape.size(), ctx);
+  detail_v3::lower_sharding(meta, ctx);
 
   meta.attributes = j.value("attributes", json::object());
   if (!meta.attributes.is_object()) {
@@ -580,27 +631,50 @@ inline json emit_fill(const std::optional<Bytes>& fill, DataType dt) {
   }
 }
 
+namespace detail_v3 {
+
+inline json emit_codec_list(const std::vector<CodecSpec>& codecs) {
+  json out = json::array();
+  for (const CodecSpec& codec : codecs) {
+    json c = {{"name", codec.name}};
+    if (codec.configuration.is_object() && !codec.configuration.empty()) {
+      c["configuration"] = codec.configuration;
+    }
+    out.push_back(std::move(c));
+  }
+  return out;
+}
+
+}  // namespace detail_v3
+
 /// Emits canonical v3 array metadata. Deterministic: fixed member set (empty
 /// attributes and absent dimension_names are omitted), sorted keys, stable
-/// forms.
+/// forms. Shard levels fold back into nested sharding_indexed codecs.
 inline json emit_array_meta(const ArrayMeta& meta) {
   json j;
   j["zarr_format"] = 3;
   j["node_type"] = "array";
   j["shape"] = meta.shape;
   j["data_type"] = emit_data_type(meta.dtype);
-  j["chunk_grid"] = {{"name", "regular"}, {"configuration", {{"chunk_shape", meta.chunk_shape}}}};
+  const std::vector<std::uint64_t>& grid_shape =
+      meta.shard_levels.empty() ? meta.chunk_shape : meta.shard_levels.front().shard_shape;
+  j["chunk_grid"] = {{"name", "regular"}, {"configuration", {{"chunk_shape", grid_shape}}}};
   j["chunk_key_encoding"] = {
       {"name", meta.key_encoding == ChunkKeyKind::v3_default ? "default" : "v2"},
       {"configuration", {{"separator", std::string(1, meta.dimension_separator)}}}};
   j["fill_value"] = emit_fill(meta.fill, meta.dtype);
-  json codecs = json::array();
-  for (const CodecSpec& codec : meta.codecs) {
-    json c = {{"name", codec.name}};
-    if (codec.configuration.is_object() && !codec.configuration.empty()) {
-      c["configuration"] = codec.configuration;
-    }
-    codecs.push_back(std::move(c));
+
+  json codecs = detail_v3::emit_codec_list(meta.codecs);
+  for (std::size_t i = meta.shard_levels.size(); i-- > 0;) {
+    const ShardLevel& level = meta.shard_levels[i];
+    const std::vector<std::uint64_t>& inner_shape =
+        i + 1 < meta.shard_levels.size() ? meta.shard_levels[i + 1].shard_shape : meta.chunk_shape;
+    codecs = json::array({{{"name", "sharding_indexed"},
+                           {"configuration",
+                            {{"chunk_shape", inner_shape},
+                             {"codecs", std::move(codecs)},
+                             {"index_codecs", detail_v3::emit_codec_list(level.index_codecs)},
+                             {"index_location", level.index_at_end ? "end" : "start"}}}}});
   }
   j["codecs"] = std::move(codecs);
   if (meta.attributes.is_object() && !meta.attributes.empty()) {

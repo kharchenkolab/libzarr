@@ -53,6 +53,18 @@ enum class ChunkKeyKind : std::uint8_t {
   v3_default,
 };
 
+/// One level of sharding, outermost first (nested sharding stacks levels).
+/// ArrayMeta::chunk_shape is always the innermost (true chunk) shape; each
+/// level's shard shape is an integer multiple of the next level's.
+struct ShardLevel {
+  /// Shard (outer chunk) shape at this level.
+  std::vector<std::uint64_t> shard_shape;
+  /// Codecs of the shard index (fixed-size: `bytes` and optional `crc32c`).
+  std::vector<CodecSpec> index_codecs;
+  /// v3 sharding spec index_location: end (default) or start.
+  bool index_at_end = true;
+};
+
 /// Normalized array metadata, shared by every format version. Version quirks
 /// are resolved at parse time; everything downstream (codecs, chunk I/O)
 /// consumes only this.
@@ -74,9 +86,12 @@ struct ArrayMeta {
   char dimension_separator = '.';
   /// v3 dimension_names member, preserved verbatim (null when absent).
   json dimension_names;
-  /// Codec chain in v3 order: array->array*, one array->bytes ("bytes"),
-  /// then bytes->bytes*.
+  /// Codec chain of the (innermost) chunks, in v3 order: array->array*, one
+  /// array->bytes ("bytes"), then bytes->bytes*. sharding_indexed never
+  /// appears here — it is lowered into `shard_levels`.
   std::vector<CodecSpec> codecs;
+  /// Sharding levels (empty = unsharded); see ShardLevel.
+  std::vector<ShardLevel> shard_levels;
   /// User attributes (v2 .zattrs / v3 attributes).
   json attributes = json::object();
 

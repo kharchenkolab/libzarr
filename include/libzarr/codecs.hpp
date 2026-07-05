@@ -67,9 +67,9 @@ class CodecPipeline {
         past_bytes = true;
         p.set_byte_order(codec);
       } else if (codec.name == "sharding_indexed") {
-        // array->bytes like "bytes", so reject by name before placement checks.
-        throw error(
-            "codec 'sharding_indexed' is not supported yet (sharding arrives in a later phase)");
+        // Sharding is not executed as a codec: metadata parsing lowers it
+        // into ArrayMeta::shard_levels and Array wraps the store instead.
+        throw error("codec 'sharding_indexed' must be lowered into shard levels, not resolved");
       } else {
         if (!past_bytes) {
           throw error("codec '" + codec.name + "' must follow the 'bytes' codec");

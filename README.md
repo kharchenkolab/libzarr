@@ -3,9 +3,9 @@
 A small, dependency-light, **header-only C++17** library for reading and writing the
 [Zarr](https://zarr.dev) array storage format — **v2 and v3**.
 
-> **Status: pre-alpha.** Zarr **v2 and v3 read/write** (non-sharded) work and are
+> **Status: pre-alpha.** Zarr **v2 and v3 read/write including sharding** work and are
 > conformance-tested against zarr-python in both directions, as are STORED-entry
-> **ZIP archives**. Sharding is in progress. Nothing is API-stable yet.
+> **ZIP archives**. Nothing is API-stable yet.
 
 ```cpp
 auto store = std::make_shared<zarr::MemoryStore>();

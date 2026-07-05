@@ -422,6 +422,32 @@ int build_fixtures_v3(const std::shared_ptr<zarr::Store>& store) {
     spec.dimension_names = {"y", "x"};
     write_pattern("outer/named_dims", spec);
   }
+  {  // sharding: plain and with gzip'd inner chunks
+    zarr::ArraySpec spec;
+    spec.shape = {8, 8};
+    spec.shards = {4, 4};
+    spec.chunks = {2, 2};
+    spec.dtype = DataType::of(DType::int32);
+    write_pattern("sharded_plain", spec);
+#ifdef LIBZARR_HAS_ZLIB
+    spec.dtype = DataType::of(DType::float64);
+    spec.codecs = {zarr::gzip(5)};
+    write_pattern("sharded_gzip", spec);
+#endif
+  }
+  {  // partial shard: NaN fill, one inner chunk written
+    zarr::ArraySpec spec;
+    spec.shape = {8};
+    spec.shards = {8};
+    spec.chunks = {2};
+    spec.dtype = DataType::of(DType::float32);
+    spec.fill = zarr::detail::quiet_nan_bytes(DType::float32);
+    auto array = root.create_array("sharded_partial", spec);
+    const Bytes head = pattern(spec.dtype, 2);
+    array.write_chunk({0}, head.data(), head.size());
+    array.set_attributes({{"conformance", {{"expect", "partial"}, {"written", 2}}}});
+    ++count;
+  }
 
   zarr::v3::consolidate(*store);
   std::cout << "wrote " << count << " v3 arrays\n";

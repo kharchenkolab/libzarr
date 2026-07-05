@@ -96,6 +96,18 @@ def main() -> None:
                dimension_names=["y", "x"])
     z[:] = pattern(z.dtype, 12).reshape(3, 4)
 
+    # sharding: plain and with gzip'd inner chunks, plus a partial shard
+    z = create("sharded_plain", shape=(8, 8), shards=(4, 4), chunks=(2, 2),
+               dtype="int32")
+    z[:] = pattern(z.dtype, 64).reshape(8, 8)
+    z = create("sharded_gzip", shape=(8, 8), shards=(4, 4), chunks=(2, 2),
+               dtype="float64", compressors=[GzipCodec(level=5)])
+    z[:] = pattern(z.dtype, 64).reshape(8, 8)
+    z = create("sharded_partial", shape=(8,), shards=(8,), chunks=(2,),
+               dtype="float32", fill_value=float("nan"))
+    z[0:2] = pattern(np.dtype("float32"), 2)
+    z.attrs["conformance"] = {"expect": "partial", "written": 2}
+
     zarr.consolidate_metadata(store)
     print(f"v3 fixtures written to {sys.argv[1]}")
 
