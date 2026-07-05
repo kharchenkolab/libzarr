@@ -1,0 +1,28 @@
+name: cflite-batch
+# ClusterFuzzLite batch + pruning: scheduled longer runs against the whole
+# corpus, persisting findings and a growing corpus between runs.
+on:
+  schedule:
+    - cron: '29 6 * * *' # daily
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, undefined]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+        with:
+          language: c++
+          sanitizer: ${{ matrix.sanitizer }}
+      - uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 1800
+          mode: 'batch'
+          sanitizer: ${{ matrix.sanitizer }}

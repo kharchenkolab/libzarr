@@ -1,0 +1,34 @@
+name: cflite-pr
+# ClusterFuzzLite on pull requests: builds the fuzzers in the OSS-Fuzz
+# toolchain (.clusterfuzzlite/) and fuzzes the code the PR changes for a
+# short budget, failing the PR on a new crash. Same build files a future
+# OSS-Fuzz submission would use.
+on:
+  pull_request:
+    paths:
+      - 'include/**'
+      - 'fuzz/**'
+      - '.clusterfuzzlite/**'
+permissions:
+  contents: read
+jobs:
+  fuzzing:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: cflite-pr-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@v1
+        with:
+          language: c++
+          sanitizer: address
+      - id: run
+        uses: google/clusterfuzzlite/actions/run_fuzzers@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 300
+          mode: 'code-change'
+          sanitizer: address
+          output-sarif: true

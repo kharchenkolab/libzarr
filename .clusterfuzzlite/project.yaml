@@ -1,0 +1,14 @@
+# OSS-Fuzz / ClusterFuzzLite project config for libzarr. The same file drives
+# ClusterFuzzLite (continuous fuzzing in this repo's GitHub Actions) and a
+# future OSS-Fuzz submission. See tests/wild and fuzz/ for the harnesses.
+homepage: "https://github.com/kharchenkolab/libzarr"
+language: c++
+primary_contact: "peter.kharchenko@gmail.com"
+main_repo: "https://github.com/kharchenkolab/libzarr"
+fuzzing_engines:
+  - libfuzzer
+sanitizers:
+  - address
+  - undefined
+architectures:
+  - x86_64

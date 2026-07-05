@@ -34,6 +34,10 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Continuous fuzzing via ClusterFuzzLite** (`.clusterfuzzlite/`, `.github/workflows/cflite-*`):
+  the three libFuzzer harnesses now run in the OSS-Fuzz toolchain on every PR (code-change
+  mode) and daily (batch, ASan + UBSan). The same `project.yaml`/`Dockerfile`/`build.sh`
+  are ready for an OSS-Fuzz submission.
 - **Published API documentation** at <https://kharchenkolab.github.io/libzarr/> (Doxygen,
   auto-deployed to GitHub Pages on every push to main).
 
