@@ -7,6 +7,10 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Region (hyperslab) I/O**: `Array::read_region` / `Array::write_region` read and write
+  arbitrary sub-boxes in array coordinates; partially covered chunks are
+  read-modify-written, and the paths work through any codec chain and through shards.
+  Whole-array `read`/`write` now share the same implementation.
 - **zarr-python default codecs**: v2 `blosc` compressor objects (zarr-python 2.x's
   default) now lower onto the blosc codec, and a new `zstd` codec (behind
   `LIBZARR_HAS_ZSTD`) covers zarr-python 3.x's default for both v3 arrays and v2 arrays —

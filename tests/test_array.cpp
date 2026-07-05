@@ -329,3 +329,111 @@ TEST_CASE("compressed array round-trip (gzip and zlib)") {
   }
 }
 #endif
+
+TEST_CASE("region reads") {
+  auto store = std::make_shared<zarr::MemoryStore>();
+  ArraySpec spec;
+  spec.shape = {5, 6};
+  spec.chunks = {2, 4};
+  spec.dtype = DataType::of(DType::int32);
+  auto array = zarr::Array::create(store, "r", spec);
+  const auto values = iota_values<std::int32_t>(30);
+  array.write(values.data(), 120);
+
+  SUBCASE("crossing chunk boundaries") {
+    // rows 1..3, cols 2..5: spans 4 chunks
+    std::vector<std::int32_t> out(12);
+    array.read_region({1, 2}, {3, 4}, out.data(), out.size() * 4);
+    for (std::size_t r = 0; r < 3; ++r) {
+      for (std::size_t c = 0; c < 4; ++c) {
+        CHECK(out[r * 4 + c] == static_cast<std::int32_t>((r + 1) * 6 + (c + 2)));
+      }
+    }
+  }
+  SUBCASE("single element") {
+    std::int32_t v = -1;
+    array.read_region({4, 5}, {1, 1}, &v, 4);
+    CHECK(v == 29);
+  }
+  SUBCASE("whole array equals read()") {
+    std::vector<std::int32_t> out(30);
+    array.read_region({0, 0}, {5, 6}, out.data(), 120);
+    CHECK(out == values);
+  }
+  SUBCASE("empty region is a no-op") { array.read_region({2, 3}, {0, 2}, nullptr, 0); }
+  SUBCASE("validation") {
+    std::vector<std::int32_t> out(6);
+    CHECK_THROWS_AS(array.read_region({4, 0}, {2, 3}, out.data(), 24), zarr::error);  // OOB
+    CHECK_THROWS_AS(array.read_region({0}, {5}, out.data(), 20), zarr::error);        // rank
+    CHECK_THROWS_AS(array.read_region({0, 0}, {2, 3}, out.data(), 25), zarr::error);  // size
+  }
+}
+
+TEST_CASE("region writes read-modify-write partially covered chunks") {
+  auto store = std::make_shared<zarr::MemoryStore>();
+  ArraySpec spec;
+  spec.shape = {5, 6};
+  spec.chunks = {2, 4};
+  spec.dtype = DataType::of(DType::int32);
+#ifdef LIBZARR_HAS_ZLIB
+  spec.codecs = {zarr::gzip(1)};  // RMW must decode-modify-encode
+#endif
+  auto array = zarr::Array::create(store, "w", spec);
+  const auto values = iota_values<std::int32_t>(30);
+  array.write(values.data(), 120);
+
+  // Overwrite rows 1..3, cols 2..5 with 900+i.
+  std::vector<std::int32_t> patch(12);
+  for (std::size_t i = 0; i < patch.size(); ++i) {
+    patch[i] = 900 + static_cast<std::int32_t>(i);
+  }
+  array.write_region({1, 2}, {3, 4}, patch.data(), 48);
+
+  const auto out = read_all<std::int32_t>(zarr::Array::open(store, "w"));
+  for (std::size_t r = 0; r < 5; ++r) {
+    for (std::size_t c = 0; c < 6; ++c) {
+      const auto i = r * 6 + c;
+      if (r >= 1 && r <= 3 && c >= 2) {
+        CHECK(out[i] == 900 + static_cast<std::int32_t>((r - 1) * 4 + (c - 2)));
+      } else {
+        CHECK(out[i] == values[i]);  // untouched elements preserved
+      }
+    }
+  }
+}
+
+TEST_CASE("region write into an all-fill array touches only its chunks") {
+  auto store = std::make_shared<zarr::MemoryStore>();
+  ArraySpec spec;
+  spec.shape = {4, 4};
+  spec.chunks = {2, 2};
+  spec.dtype = DataType::of(DType::int16);
+  const std::int16_t fill = -9;
+  spec.fill = Bytes(2);
+  std::memcpy(spec.fill->data(), &fill, 2);
+  auto array = zarr::Array::create(store, "f", spec);
+
+  const std::vector<std::int16_t> patch{1, 2};
+  array.write_region({1, 1}, {1, 2}, patch.data(), 4);  // straddles chunks (0,0) and (0,1)
+  CHECK(store->exists("f/0.0"));
+  CHECK(store->exists("f/0.1"));
+  CHECK_FALSE(store->exists("f/1.0"));  // untouched chunks stay absent
+
+  const auto out = read_all<std::int16_t>(zarr::Array::open(store, "f"));
+  CHECK(out[1 * 4 + 1] == 1);
+  CHECK(out[1 * 4 + 2] == 2);
+  CHECK(out[0] == fill);  // RMW seeded the partial chunks from fill
+  CHECK(out[3 * 4 + 3] == fill);
+}
+
+TEST_CASE("region I/O on 0-d arrays") {
+  auto store = std::make_shared<zarr::MemoryStore>();
+  ArraySpec spec;
+  spec.dtype = DataType::of(DType::float64);
+  auto array = zarr::Array::create(store, "s", spec);
+  const double v = 6.5;
+  array.write_region({}, {}, &v, 8);
+  double out = 0;
+  array.read_region({}, {}, &out, 8);
+  CHECK(out == 6.5);
+}

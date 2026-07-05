@@ -31,7 +31,8 @@ Optional codecs (off by default; a codec that is not built in fails at codec *re
 with a precise error, never at link time):
 
 - `-DLIBZARR_WITH_ZLIB=ON` → gzip + v2 zlib (`LIBZARR_HAS_ZLIB`)
-- `-DLIBZARR_WITH_BLOSC=ON` → blosc (`LIBZARR_HAS_BLOSC`)
+- `-DLIBZARR_WITH_BLOSC=ON` → blosc, zarr-python 2.x's default (`LIBZARR_HAS_BLOSC`)
+- `-DLIBZARR_WITH_ZSTD=ON` → zstd, zarr-python 3.x's default (`LIBZARR_HAS_ZSTD`)
 
 ## Read an existing store
 
@@ -53,6 +54,11 @@ Per-chunk and sub-chunk access (`index` is in chunk-grid coordinates):
 zarr::Bytes chunk = array.read_chunk({1, 2});               // full chunk, fill-padded
 zarr::Bytes part  = array.read_chunk_range({1, 2}, 8, 16);  // elements [8, 24) of the chunk;
                                                             // needs an uncompressed layout
+
+// Hyperslabs (any codecs, any sharding). write_region read-modify-writes
+// partially covered chunks, preserving their other elements.
+array.read_region(/*origin=*/{1, 2}, /*shape=*/{3, 4}, buf.data(), buf_bytes);
+array.write_region({1, 2}, {3, 4}, buf.data(), buf_bytes);
 ```
 
 Strict-by-spec v3 parsing can be relaxed for quirky stores:

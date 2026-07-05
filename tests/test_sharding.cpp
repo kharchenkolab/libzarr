@@ -276,3 +276,36 @@ TEST_CASE("all-fill shards are erased on flush") {
   // Still stored (zero-valued chunks are data, not fill sentinels).
   CHECK(store->exists("s/c/0/0"));
 }
+
+TEST_CASE("region I/O through shards") {
+  auto store = std::make_shared<zarr::MemoryStore>();
+  auto array = zarr::Array::create(store, "s", sharded_spec());
+  const auto values = iota32(64);
+  array.write(values.data(), 256);
+
+  SUBCASE("read crossing shard boundaries") {
+    // rows 2..5, cols 2..5: spans all four shards
+    std::vector<std::int32_t> out(16);
+    array.read_region({2, 2}, {4, 4}, out.data(), 64);
+    for (std::size_t r = 0; r < 4; ++r) {
+      for (std::size_t c = 0; c < 4; ++c) {
+        CHECK(out[r * 4 + c] == static_cast<std::int32_t>((r + 2) * 8 + (c + 2)));
+      }
+    }
+  }
+  SUBCASE("write RMW on partial inner chunks preserves shard siblings") {
+    auto writer = zarr::Array::open(store, "s");
+    const std::vector<std::int32_t> patch{700, 701, 702, 703};
+    writer.write_region({1, 1}, {2, 2}, patch.data(), 16);  // partial inner chunks
+
+    std::vector<std::int32_t> out(64);
+    zarr::Array::open(store, "s").read(out.data(), 256);
+    CHECK(out[1 * 8 + 1] == 700);
+    CHECK(out[1 * 8 + 2] == 701);
+    CHECK(out[2 * 8 + 1] == 702);
+    CHECK(out[2 * 8 + 2] == 703);
+    CHECK(out[0] == 0);           // same inner chunk, untouched element
+    CHECK(out[3 * 8 + 3] == 27);  // same shard, other inner chunk
+    CHECK(out[5 * 8 + 5] == 45);  // other shard
+  }
+}

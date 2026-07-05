@@ -46,6 +46,10 @@ array.read(out.data(), out.size() * sizeof(float));
 zarr::Bytes chunk = array.read_chunk({1, 2});              // one chunk, fill-padded
 zarr::Bytes part  = array.read_chunk_range({1, 2}, 8, 16); // elements [8, 24) of a chunk,
                                                            // fetched as a byte range
+
+std::vector<float> region(3 * 4);                          // hyperslab: rows 1..3, cols 2..5
+array.read_region({1, 2}, {3, 4}, region.data(), region.size() * sizeof(float));
+array.write_region({1, 2}, {3, 4}, region.data(), region.size() * sizeof(float));
 ```
 
 **ZIP archives** — a whole store in one file, chunks still byte-range-readable

@@ -273,44 +273,49 @@ class Array {
   /// Reads the whole array into `dst` (native order, C layout); `size` must
   /// equal nbytes().
   void read(void* dst, std::size_t size) const {
-    if (size != nbytes()) {
-      throw error("read: buffer is " + std::to_string(size) + " bytes, array needs " +
-                  std::to_string(nbytes()));
-    }
-    auto* out = static_cast<std::uint8_t*>(dst);
-    const auto grid = meta_.grid_shape();
-    const std::vector<std::uint64_t> zero(grid.size(), 0);
-    std::vector<std::uint64_t> index(grid.size(), 0);
-    std::vector<std::uint64_t> origin;
-    std::vector<std::uint64_t> box;
-    do {
-      const Bytes chunk = read_chunk(index);
-      chunk_box(index, origin, box);
-      detail::copy_box(chunk.data(), meta_.chunk_shape, zero, out, meta_.shape, origin, box,
-                       meta_.dtype.itemsize);
-    } while (detail::next_index(index, grid));
+    read_region(std::vector<std::uint64_t>(meta_.shape.size(), 0), meta_.shape, dst, size);
   }
 
   /// Writes the whole array from `src` (native order, C layout); `size` must
   /// equal nbytes(). Edge chunks are fill-padded, per the format.
   void write(const void* src, std::size_t size) {
-    if (size != nbytes()) {
-      throw error("write: buffer is " + std::to_string(size) + " bytes, array needs " +
-                  std::to_string(nbytes()));
+    write_region(std::vector<std::uint64_t>(meta_.shape.size(), 0), meta_.shape, src, size);
+  }
+
+  /// Reads the hyperslab of `shape` starting at `origin` (array coordinates)
+  /// into `dst` as a C-order native buffer of exactly `size` bytes. Missing
+  /// chunks read as fill.
+  void read_region(const std::vector<std::uint64_t>& origin,
+                   const std::vector<std::uint64_t>& shape, void* dst, std::size_t size) const {
+    validate_region(origin, shape, size, "read_region");
+    if (size == 0) {
+      return;
+    }
+    auto* out = static_cast<std::uint8_t*>(dst);
+    for_each_region_chunk(origin, shape, [&](const RegionChunk& rc) {
+      const Bytes chunk = read_chunk(rc.index);
+      detail::copy_box(chunk.data(), meta_.chunk_shape, rc.origin_in_chunk, out, shape,
+                       rc.origin_in_region, rc.box, meta_.dtype.itemsize);
+    });
+  }
+
+  /// Writes the hyperslab of `shape` starting at `origin` from `src` (a
+  /// C-order native buffer of exactly `size` bytes). Partially covered
+  /// chunks are read-modify-written, preserving their other elements;
+  /// chunks the region covers entirely are rebuilt without a read.
+  void write_region(const std::vector<std::uint64_t>& origin,
+                    const std::vector<std::uint64_t>& shape, const void* src, std::size_t size) {
+    validate_region(origin, shape, size, "write_region");
+    if (size == 0) {
+      return;
     }
     const auto* in = static_cast<const std::uint8_t*>(src);
-    const auto grid = meta_.grid_shape();
-    const std::vector<std::uint64_t> zero(grid.size(), 0);
-    std::vector<std::uint64_t> index(grid.size(), 0);
-    std::vector<std::uint64_t> origin;
-    std::vector<std::uint64_t> box;
-    do {
-      Bytes chunk = filled_chunk();
-      chunk_box(index, origin, box);
-      detail::copy_box(in, meta_.shape, origin, chunk.data(), meta_.chunk_shape, zero, box,
-                       meta_.dtype.itemsize);
-      chunk_store_->write(chunk_store_key(index), pipeline_.encode(std::move(chunk)));
-    } while (detail::next_index(index, grid));
+    for_each_region_chunk(origin, shape, [&](const RegionChunk& rc) {
+      Bytes chunk = rc.covered ? filled_chunk() : read_chunk(rc.index);
+      detail::copy_box(in, shape, rc.origin_in_region, chunk.data(), meta_.chunk_shape,
+                       rc.origin_in_chunk, rc.box, meta_.dtype.itemsize);
+      chunk_store_->write(chunk_store_key(rc.index), pipeline_.encode(std::move(chunk)));
+    });
     chunk_store_->flush();
   }
 
@@ -456,15 +461,85 @@ class Array {
     return chunk;
   }
 
-  /// Origin (in array coordinates) and in-bounds box of chunk `index`.
-  void chunk_box(const std::vector<std::uint64_t>& index, std::vector<std::uint64_t>& origin,
-                 std::vector<std::uint64_t>& box) const {
+  /// The intersection of one chunk with a requested region.
+  struct RegionChunk {
+    std::vector<std::uint64_t> index;             ///< chunk-grid index
+    std::vector<std::uint64_t> origin_in_chunk;   ///< intersection start, chunk coords
+    std::vector<std::uint64_t> origin_in_region;  ///< intersection start, region coords
+    std::vector<std::uint64_t> box;               ///< intersection extents
+    /// True when the region covers the chunk's whole in-array portion (so a
+    /// write need not read the existing chunk first).
+    bool covered = true;
+  };
+
+  void validate_region(const std::vector<std::uint64_t>& origin,
+                       const std::vector<std::uint64_t>& shape, std::size_t size,
+                       const char* what) const {
     const std::size_t rank = meta_.shape.size();
-    origin.assign(rank, 0);
-    box.assign(rank, 0);
+    if (origin.size() != rank || shape.size() != rank) {
+      throw error(std::string(what) + ": origin/shape rank must be " + std::to_string(rank));
+    }
     for (std::size_t d = 0; d < rank; ++d) {
-      origin[d] = index[d] * meta_.chunk_shape[d];
-      box[d] = std::min(meta_.chunk_shape[d], meta_.shape[d] - origin[d]);
+      if (shape[d] > meta_.shape[d] || origin[d] > meta_.shape[d] - shape[d]) {
+        throw error(std::string(what) + ": region [" + std::to_string(origin[d]) + ", " +
+                    std::to_string(origin[d]) + "+" + std::to_string(shape[d]) +
+                    ") exceeds dimension " + std::to_string(d) + " (extent " +
+                    std::to_string(meta_.shape[d]) + ")");
+      }
+    }
+    const std::uint64_t bytes = detail::checked_product(shape, what) * meta_.dtype.itemsize;
+    if (size != detail::checked_size(bytes, what)) {
+      throw error(std::string(what) + ": buffer is " + std::to_string(size) +
+                  " bytes, region needs " + std::to_string(bytes));
+    }
+  }
+
+  /// Invokes `fn(RegionChunk)` for every chunk intersecting the (non-empty,
+  /// validated) region, in C order.
+  template <typename Fn>
+  void for_each_region_chunk(const std::vector<std::uint64_t>& origin,
+                             const std::vector<std::uint64_t>& shape, const Fn& fn) const {
+    const std::size_t rank = meta_.shape.size();
+    std::vector<std::uint64_t> first(rank, 0);
+    std::vector<std::uint64_t> last(rank, 0);
+    for (std::size_t d = 0; d < rank; ++d) {
+      first[d] = origin[d] / meta_.chunk_shape[d];
+      last[d] = (origin[d] + shape[d] - 1) / meta_.chunk_shape[d];
+    }
+
+    RegionChunk rc;
+    rc.index = first;
+    rc.origin_in_chunk.assign(rank, 0);
+    rc.origin_in_region.assign(rank, 0);
+    rc.box.assign(rank, 0);
+    while (true) {
+      rc.covered = true;
+      for (std::size_t d = 0; d < rank; ++d) {
+        const std::uint64_t chunk_start = rc.index[d] * meta_.chunk_shape[d];
+        const std::uint64_t valid_end =
+            std::min(chunk_start + meta_.chunk_shape[d], meta_.shape[d]);
+        const std::uint64_t begin = std::max(chunk_start, origin[d]);
+        const std::uint64_t end = std::min(valid_end, origin[d] + shape[d]);
+        rc.origin_in_chunk[d] = begin - chunk_start;
+        rc.origin_in_region[d] = begin - origin[d];
+        rc.box[d] = end - begin;
+        rc.covered = rc.covered && begin == chunk_start && end == valid_end;
+      }
+      fn(rc);
+      // odometer over [first, last]
+      std::size_t d = rank;
+      bool advanced = false;
+      while (d-- > 0) {
+        if (rc.index[d] < last[d]) {
+          ++rc.index[d];
+          advanced = true;
+          break;
+        }
+        rc.index[d] = first[d];
+      }
+      if (!advanced) {
+        return;
+      }
     }
   }
 
