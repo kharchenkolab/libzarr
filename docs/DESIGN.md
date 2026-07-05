@@ -69,24 +69,27 @@ v0.2.0 on a Xeon E5-2697 v3 @ 2.60 GHz (zlib 1.2.11, libzstd 1.4.4, c-blosc 1.21
 
 | case           | write MiB/s | read MiB/s | stored/raw |
 |----------------|------------:|-----------:|-----------:|
-| raw            |        2695 |       2479 |       1.00 |
-| crc32c         |         325 |        357 |       1.00 |
-| gzip-1         |          40 |        155 |       0.69 |
-| gzip-5         |          19 |        157 |       0.65 |
-| zstd-0         |          72 |        463 |       0.64 |
-| blosc-lz4      |         923 |       1350 |       0.60 |
-| sharded raw    |         502 |        614 |       1.00 |
-| sharded zstd-0 |          69 |        338 |       0.64 |
+| raw            |        2868 |       2595 |       1.00 |
+| crc32c         |        1435 |       2018 |       1.00 |
+| gzip-1         |          40 |        156 |       0.69 |
+| gzip-5         |          19 |        159 |       0.65 |
+| zstd-0         |          73 |        466 |       0.64 |
+| blosc-lz4      |         932 |       1378 |       0.60 |
+| sharded raw    |         506 |        620 |       1.00 |
+| sharded zstd-0 |          70 |        342 |       0.64 |
 
 Reading of the numbers: raw is memcpy-bound; compressed cases are codec-bound (the
-uncompressed `raw` row is the pipeline-overhead ceiling). The sharded-raw gap vs raw
-(~5× write, ~4× read) quantifies the two costs already documented above: the
-C-order write path reassembles each shard once per row of inner chunks (4× here), and
-each inner-chunk access pays key formatting/parsing plus an index lookup. With a real
-compressor attached the gap disappears into codec cost (zstd-0 sharded ≈ unsharded).
-Worthwhile future optimizations, in impact order: hardware CRC-32C (SSE4.2 gives ~8×
-on the crc32c row and shard indices), shard-major write ordering, and cheaper chunk-key
-handling in `ShardStore::locate`.
+uncompressed `raw` row is the pipeline-overhead ceiling). The `crc32c` row uses the SSE4.2
+CRC instruction (`detail::crc32c` dispatches to it at run time, ~4.5–5.6× the table
+implementation it replaced — 325→1435 write, 357→2018 read); CRC is no longer the
+bottleneck there, the row is now pipeline/memcpy-bound like `raw`. The sharded-raw gap vs
+raw (~5.7× write, ~4× read) is the remaining known cost: the C-order write path reassembles
+each shard once per row of inner chunks (4× here), and each inner-chunk access pays key
+formatting/parsing plus an index lookup. It barely moved with the faster CRC (the shard
+index was never its bottleneck), and it disappears entirely under a real compressor (zstd-0
+sharded ≈ unsharded — both codec-bound). Remaining optimization, if a workload ever needs
+it: shard-major write ordering to assemble each shard once, plus cheaper chunk-key handling
+in `ShardStore::locate`.
 
 ## Consolidated metadata
 

@@ -33,6 +33,13 @@ All notable changes to libzarr are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Hardware-accelerated CRC-32C**: `detail::crc32c` now dispatches at run time to the SSE4.2
+  CRC instruction on x86 (GCC/Clang), ~4.5–5.6× the portable table it replaces (crc32c codec
+  throughput 325→1435 MiB/s write, 357→2018 read). Falls back to the table on non-x86, MSVC,
+  and WASM, so the core stays portable and WASM-clean; verified bit-identical to the table
+  across all length/alignment cases. Speeds up the v3 crc32c codec and shard-index checks.
+
 ### Added
 - **Continuous fuzzing via ClusterFuzzLite** (`.clusterfuzzlite/`, `.github/workflows/cflite-*`):
   the three libFuzzer harnesses now run in the OSS-Fuzz toolchain on every PR (code-change

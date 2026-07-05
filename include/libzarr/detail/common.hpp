@@ -76,7 +76,10 @@ inline bool ends_with(std::string_view text, std::string_view suffix) {
 /// CRC-32C (Castagnoli, reflected poly 0x82F63B78, per RFC 3720 §B.4) — the
 /// checksum required by the v3 crc32c codec and the sharding index. This is
 /// NOT the zip/zlib CRC-32 (IEEE), which uses a different polynomial.
-inline std::uint32_t crc32c(const std::uint8_t* data, std::size_t size) {
+///
+/// Portable byte-at-a-time table implementation; the runtime-dispatched
+/// public crc32c() below prefers the SSE4.2 instruction where available.
+inline std::uint32_t crc32c_table(const std::uint8_t* data, std::size_t size) {
   static const std::array<std::uint32_t, 256> table = [] {
     std::array<std::uint32_t, 256> t{};
     for (std::uint32_t i = 0; i < 256; ++i) {
@@ -93,6 +96,54 @@ inline std::uint32_t crc32c(const std::uint8_t* data, std::size_t size) {
     c = table[(c ^ data[i]) & 0xFFU] ^ (c >> 8U);
   }
   return c ^ 0xFFFFFFFFU;
+}
+
+// The hardware path uses the SSE4.2 CRC32 instruction (`crc32` — Castagnoli,
+// the same polynomial), ~8x the table method. It exists only on x86 under
+// GCC/Clang, where target-attributed code can emit the instruction without
+// building the whole TU for SSE4.2 and __builtin_cpu_supports picks it at
+// run time. Everywhere else (ARM, wasm, MSVC) the table path is used, so the
+// core stays portable and WASM-clean.
+#if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
+#define LIBZARR_CRC32C_X86 1
+#include <nmmintrin.h>
+
+__attribute__((target("sse4.2"))) inline std::uint32_t crc32c_sse42(const std::uint8_t* data,
+                                                                    std::size_t size) {
+  std::uint64_t crc = 0xFFFFFFFFU;
+  std::size_t i = 0;
+  for (; i + 8 <= size; i += 8) {
+    std::uint64_t word = 0;
+    std::memcpy(&word, data + i, 8);  // x86 is little-endian; matches byte order
+    crc = _mm_crc32_u64(crc, word);
+  }
+  auto c = static_cast<std::uint32_t>(crc);
+  for (; i < size; ++i) {
+    c = _mm_crc32_u8(c, data[i]);
+  }
+  return c ^ 0xFFFFFFFFU;
+}
+#endif
+
+/// True when crc32c() uses the SSE4.2 instruction on this CPU.
+inline bool crc32c_uses_hardware() {
+#ifdef LIBZARR_CRC32C_X86
+  static const bool hw = __builtin_cpu_supports("sse4.2");
+  return hw;
+#else
+  return false;
+#endif
+}
+
+/// CRC-32C over `size` bytes at `data`. Dispatches to the SSE4.2 instruction
+/// when the CPU supports it, else the portable table.
+inline std::uint32_t crc32c(const std::uint8_t* data, std::size_t size) {
+#ifdef LIBZARR_CRC32C_X86
+  if (crc32c_uses_hardware()) {
+    return crc32c_sse42(data, size);
+  }
+#endif
+  return crc32c_table(data, size);
 }
 
 // ---- IEEE 754 binary16 (float16 has no native C++17 type) ------------------

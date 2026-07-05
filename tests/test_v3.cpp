@@ -71,6 +71,31 @@ TEST_CASE("crc32c is Castagnoli, not zlib's IEEE crc32") {
   CHECK(zarr::detail::crc32c(zeros.data(), zeros.size()) == 0x8a9136aaU);
   const Bytes ones(32, 0xFF);
   CHECK(zarr::detail::crc32c(ones.data(), ones.size()) == 0x62a8ab43U);
+  // "123456789" -> 0xe3069283 (standard CRC-32C check value).
+  const Bytes check{'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+  CHECK(zarr::detail::crc32c(check.data(), check.size()) == 0xe3069283U);
+}
+
+TEST_CASE("crc32c hardware path matches the portable table") {
+  INFO("hardware (SSE4.2) path active: " << zarr::detail::crc32c_uses_hardware());
+  // Deterministic pseudo-random buffer; check every length 0..264 and a range
+  // of start offsets, so all 8-byte-block + tail + alignment cases are hit.
+  Bytes buf(320);
+  std::uint32_t lcg = 0x2545F491U;
+  for (auto& b : buf) {
+    lcg = lcg * 1664525U + 1013904223U;
+    b = static_cast<std::uint8_t>(lcg >> 24U);
+  }
+  for (std::size_t off = 0; off < 8; ++off) {
+    for (std::size_t len = 0; len + off <= buf.size(); ++len) {
+      const std::uint32_t hw = zarr::detail::crc32c(buf.data() + off, len);
+      const std::uint32_t sw = zarr::detail::crc32c_table(buf.data() + off, len);
+      if (hw != sw) {
+        FAIL("mismatch at off=" << off << " len=" << len << " hw=" << hw << " sw=" << sw);
+      }
+    }
+  }
+  CHECK(true);  // reached only if every case agreed
 }
 
 TEST_CASE("v3 data_type parsing") {
