@@ -57,6 +57,15 @@ struct ByteRange {
   }
 };
 
+/// One entry of a batched read (Store::read_many): a key and the byte range
+/// to fetch from it (the whole value by default).
+struct ReadRequest {
+  /// Key to read; must outlive the read_many call (as with any Store key).
+  std::string_view key;
+  /// Range within the value.
+  ByteRange range = ByteRange::full();
+};
+
 /// Immediate children of a prefix, as returned by Store::list_dir.
 struct DirListing {
   /// Child keys, relative to the queried prefix, sorted.
@@ -98,6 +107,22 @@ class Store {
       return std::nullopt;
     }
     return value->size();
+  }
+
+  /// Reads several ranges in one call, order-preserving: result[i] is the
+  /// value for requests[i], or std::nullopt if that key is absent. The
+  /// default implementation loops over read_range; backends whose I/O has
+  /// per-request latency (HTTP, object stores) should override to issue the
+  /// requests concurrently or as coalesced multi-range reads, cutting round
+  /// trips. Still synchronous: it returns only once every range is resolved.
+  [[nodiscard]] virtual std::vector<std::optional<Bytes>> read_many(
+      const std::vector<ReadRequest>& requests) {
+    std::vector<std::optional<Bytes>> out;
+    out.reserve(requests.size());
+    for (const ReadRequest& req : requests) {
+      out.push_back(read_range(req.key, req.range));
+    }
+    return out;
   }
 
   /// Create or replace the value at `key`.

@@ -95,9 +95,12 @@ auto array  = zarr::Group::open(zipped).open_array("temperature");  // reads use
 
 Subclass `zarr::Store` (see `examples/custom_store.cpp`). Implement the pure virtuals;
 override `read_range` when the backend has native range reads (HTTP `Range` header) and
-`size` when it has cheap stat — sharding and ZIP reading lean on both. The core never
-touches the filesystem, threads, or native endianness, so the same code compiles under
-Emscripten unchanged.
+`size` when it has cheap stat — sharding and ZIP reading lean on both. For latency-bound
+backends also override `read_many(vector<ReadRequest>)` to issue a batch of ranges
+concurrently or coalesced (the default just loops); it stays synchronous, returning once
+all ranges resolve. The core never touches the filesystem, threads, or native endianness,
+so the same code compiles under Emscripten unchanged — the Store stays synchronous by
+design, and async I/O (browser `fetch`) is bridged consumer-side (see docs/DESIGN.md).
 
 ## Gotchas
 

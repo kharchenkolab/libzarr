@@ -46,6 +46,10 @@ All notable changes to libzarr are documented here. The format follows
   across all length/alignment cases. Speeds up the v3 crc32c codec and shard-index checks.
 
 ### Added
+- **`Store::read_many`** — an optional batched multi-range read (order-preserving,
+  `std::nullopt` for absent keys) with a default loop-over-`read_range`. Latency-bound
+  backends (HTTP, object stores) override it to issue a batch of ranges concurrently or
+  coalesced, cutting round-trips; stays synchronous.
 - **Continuous fuzzing via ClusterFuzzLite** (`.clusterfuzzlite/`, `.github/workflows/cflite-*`):
   the three libFuzzer harnesses now run in the OSS-Fuzz toolchain on every PR (code-change
   mode) and daily (batch, ASan + UBSan). The same `project.yaml`/`Dockerfile`/`build.sh`

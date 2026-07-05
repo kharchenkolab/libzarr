@@ -123,3 +123,39 @@ TEST_CASE("default read_range implementation") {
                     zarr::error);
   }
 }
+
+TEST_CASE("read_many batches ranges, order-preserving") {
+  zarr::MemoryStore store;
+  store.write("a", as_bytes("0123456789"));
+  store.write("b", as_bytes("abcdef"));
+
+  const std::vector<zarr::ReadRequest> reqs = {
+      {"a", zarr::ByteRange::full()},
+      {"b", zarr::ByteRange::slice(2, 3)},
+      {"missing", zarr::ByteRange::full()},
+      {"a", zarr::ByteRange::suffix(4)},
+  };
+  const auto out = store.read_many(reqs);
+  REQUIRE(out.size() == 4);
+  CHECK(out[0] == as_bytes("0123456789"));
+  CHECK(out[1] == as_bytes("cde"));
+  CHECK(out[2] == std::nullopt);  // absent key
+  CHECK(out[3] == as_bytes("6789"));
+
+  CHECK(store.read_many({}).empty());  // empty batch -> empty result
+
+  // Out-of-bounds within a batch still throws, like read_range.
+  CHECK_THROWS_AS((void)store.read_many({{"b", zarr::ByteRange::slice(4, 5)}}), zarr::error);
+}
+
+TEST_CASE("read_many default impl works through a store using default read_range") {
+  // FallbackStore overrides only the pure virtuals, so this exercises the
+  // read_many default -> read_range default -> read chain.
+  FallbackStore store;
+  store.write("k", as_bytes("hello world"));
+  const auto out =
+      store.read_many({{"k", zarr::ByteRange::slice(6, 5)}, {"k", zarr::ByteRange::full()}});
+  REQUIRE(out.size() == 2);
+  CHECK(out[0] == as_bytes("world"));
+  CHECK(out[1] == as_bytes("hello world"));
+}
