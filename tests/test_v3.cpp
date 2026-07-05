@@ -317,11 +317,19 @@ TEST_CASE("v3 array opens and reads from a hand-written store") {
   array.read(values.data(), 12);
   CHECK(values == std::vector<std::int16_t>{1, 2, 3, 4, 5, 6});
 
-  // chunk writes work (metadata writes do not, until phase 3)
   const std::vector<std::int16_t> chunk(6, 9);
   array.write_chunk({0, 0}, chunk.data(), 12);
   CHECK(store->exists("arr/c/0/0"));
-  CHECK_THROWS_AS(array.set_attributes({{"x", 1}}), zarr::error);
+
+  // Attribute writes patch zarr.json in place, preserving extension members.
+  json extended = doc;
+  extended["custom_extension"] = {{"must_understand", false}, {"payload", 42}};
+  store->write("arr/zarr.json", zarr::canonical_json_bytes(extended));
+  auto patched = zarr::Array::open(store, "arr");
+  patched.set_attributes({{"x", 1}});
+  const auto rewritten = zarr::v2::parse_json(*store->read("arr/zarr.json"), "arr/zarr.json");
+  CHECK(rewritten.at("attributes").at("x") == 1);
+  CHECK(rewritten.at("custom_extension").at("payload") == 42);  // extension survived
 }
 
 TEST_CASE("v3 group traversal and inline consolidated metadata") {
@@ -349,7 +357,10 @@ TEST_CASE("v3 group traversal and inline consolidated metadata") {
     std::vector<std::uint8_t> values(4);
     data.read(values.data(), 4);
     CHECK(values == std::vector<std::uint8_t>{7, 7, 7, 7});
-    CHECK_THROWS_AS((void)root.create_group("x"), zarr::error);  // v3 writes: phase 3
+    // v3 groups create v3 children.
+    (void)root.create_group("x");
+    const auto xdoc = zarr::v2::parse_json(*store->read("x/zarr.json"), "x/zarr.json");
+    CHECK(xdoc.at("node_type") == "group");
   }
 
   SUBCASE("inline consolidated metadata (zarr-specs #309 convention)") {
@@ -384,4 +395,135 @@ TEST_CASE("v2/v3 open probe order and mismatch errors") {
   // a v2 store still opens (probe falls through)
   store->write(".zgroup", as_bytes(R"({"zarr_format": 2})"));
   CHECK_NOTHROW((void)zarr::Group::open(store));
+}
+
+TEST_CASE("v3 create/write/read round-trip matrix") {
+  struct Case {
+    const char* tag;
+    DataType dtype;
+  };
+  const std::vector<Case> dtypes = {{"bool", DataType::of(DType::boolean)},
+                                    {"int8", DataType::of(DType::int8)},
+                                    {"int32", DataType::of(DType::int32)},
+                                    {"uint64", DataType::of(DType::uint64)},
+                                    {"float16", DataType::of(DType::float16)},
+                                    {"float32", DataType::of(DType::float32)},
+                                    {"float64", DataType::of(DType::float64)},
+                                    {"complex64", DataType::of(DType::complex64)},
+                                    {"complex128", DataType::of(DType::complex128)},
+                                    {"r64", DataType::raw_bytes(8)}};
+  std::vector<std::vector<zarr::CodecSpec>> chains = {{}, {{"crc32c", {}}}};
+#ifdef LIBZARR_HAS_ZLIB
+  chains.push_back({zarr::gzip(5)});
+  chains.push_back({zarr::gzip(1), {"crc32c", {}}});
+#endif
+#ifdef LIBZARR_HAS_BLOSC
+  chains.push_back({{"blosc", {{"cname", "lz4"}, {"clevel", 5}, {"shuffle", "shuffle"}}}});
+#endif
+
+  for (const Case& c : dtypes) {
+    for (std::size_t chain = 0; chain < chains.size(); ++chain) {
+      CAPTURE(c.tag);
+      CAPTURE(chain);
+      auto store = std::make_shared<zarr::MemoryStore>();
+      zarr::ArraySpec spec;
+      spec.format = zarr::ZarrFormat::v3;
+      spec.shape = {5, 6};
+      spec.chunks = {2, 4};
+      spec.dtype = c.dtype;
+      spec.codecs = chains[chain];
+      auto array = zarr::Array::create(store, "a", spec);
+
+      Bytes values(static_cast<std::size_t>(30) * c.dtype.itemsize);
+      for (std::size_t i = 0; i < values.size(); ++i) {
+        values[i] = static_cast<std::uint8_t>((i * 13 + 7) % 251);
+      }
+      array.write(values.data(), values.size());
+      CHECK(store->exists("a/c/0/0"));  // default v3 chunk keys
+
+      auto reopened = zarr::Array::open(store, "a");
+      CHECK(reopened.meta().format == zarr::ZarrFormat::v3);
+      Bytes out(values.size());
+      reopened.read(out.data(), out.size());
+      CHECK(out == values);
+    }
+  }
+}
+
+TEST_CASE("v3 zarr.json golden bytes") {
+  auto store = std::make_shared<zarr::MemoryStore>();
+  zarr::ArraySpec spec;
+  spec.format = zarr::ZarrFormat::v3;
+  spec.shape = {2, 3};
+  spec.chunks = {2, 2};
+  spec.dtype = DataType::of(DType::int16);
+  spec.dimension_names = {"y", "x"};
+  (void)zarr::Array::create(store, "g", spec);
+
+  const std::string golden = R"json({
+    "chunk_grid": {"configuration": {"chunk_shape": [2, 2]}, "name": "regular"},
+    "chunk_key_encoding": {"configuration": {"separator": "/"}, "name": "default"},
+    "codecs": [{"configuration": {"endian": "little"}, "name": "bytes"}],
+    "data_type": "int16",
+    "dimension_names": ["y", "x"],
+    "fill_value": 0,
+    "node_type": "array",
+    "shape": [2, 3],
+    "zarr_format": 3
+  })json";
+  const json expected = json::parse(golden);
+  const auto written = zarr::v2::parse_json(*store->read("g/zarr.json"), "g/zarr.json");
+  CHECK(written == expected);
+  // Byte-exact: canonical serialization of equal documents is identical.
+  CHECK(*store->read("g/zarr.json") == zarr::canonical_json_bytes(expected));
+}
+
+TEST_CASE("v3 fill emission forms") {
+  const auto f4 = DataType::of(DType::float32);
+  CHECK(zarr::v3::emit_fill(zarr::detail::quiet_nan_bytes(DType::float32), f4) == "NaN");
+  // v3 core: fill_value hex form is the only NaN-payload representation.
+  CHECK(zarr::v3::emit_fill(zarr::detail::scalar_bytes<std::uint32_t>(0x7fc00001U), f4) ==
+        "0x7fc00001");
+  CHECK(zarr::v3::emit_fill(zarr::detail::infinity_bytes(DType::float32, true), f4) == "-Infinity");
+  CHECK(zarr::v3::emit_fill(zarr::detail::scalar_bytes(1.5F), f4) == 1.5);
+  CHECK(zarr::v3::emit_fill(Bytes{0x01, 0xff}, DataType::raw_bytes(2)) == "0x01ff");
+  CHECK(zarr::v3::emit_fill(std::nullopt, DataType::of(DType::int32)) == 0);  // synthesized
+
+  Bytes complex_fill = zarr::detail::scalar_bytes(1.5F);
+  const Bytes imag = zarr::detail::quiet_nan_bytes(DType::float32);
+  complex_fill.insert(complex_fill.end(), imag.begin(), imag.end());
+  CHECK(zarr::v3::emit_fill(complex_fill, DataType::of(DType::complex64)) ==
+        json::array({1.5, "NaN"}));
+
+  // fill forms round-trip through parse
+  const auto reparsed = zarr::v3::parse_fill("0x7fc00001", f4, "test", false);
+  CHECK(zarr::v3::emit_fill(reparsed, f4) == "0x7fc00001");
+}
+
+TEST_CASE("v3 hierarchy create + opt-in consolidation") {
+  auto store = std::make_shared<zarr::MemoryStore>();
+  auto root = zarr::Group::create(store, "", zarr::ZarrFormat::v3);
+  root.set_attributes({{"title", "root"}});
+
+  zarr::ArraySpec spec;
+  spec.shape = {4};
+  spec.chunks = {2};
+  spec.dtype = DataType::of(DType::uint8);
+  auto array = root.create_array("sub/data", spec);  // group format governs
+  CHECK(array.meta().format == zarr::ZarrFormat::v3);
+  CHECK(store->exists("sub/zarr.json"));  // intermediate v3 group written
+  const Bytes values{1, 2, 3, 4};
+  array.write(values.data(), 4);
+
+  // Consolidation is explicit and opt-in (the convention is not yet a spec).
+  zarr::v3::consolidate(*store);
+  // Poison the child documents: reads must go through the root's map.
+  store->write("sub/zarr.json", Bytes{'x'});
+  store->write("sub/data/zarr.json", Bytes{'x'});
+  auto reopened = zarr::Group::open(store);
+  CHECK(reopened.attributes().at("title") == "root");
+  auto data = reopened.open_group("sub").open_array("data");
+  Bytes out(4);
+  data.read(out.data(), 4);
+  CHECK(out == values);
 }

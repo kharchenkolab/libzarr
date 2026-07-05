@@ -63,30 +63,33 @@ against zarr-python by `tests/conformance/` in CI.
 
 ## Zarr v3
 
-READ is complete for non-sharded arrays (v3.1 core + named codec specs); WRITE arrives in
-phase 3.
+READ and WRITE are complete for non-sharded arrays (v3.1 core + named codec specs).
+WRITE is canonical and deterministic: fixed member set, sorted keys, 4-space indent, stable
+fill forms; conformance-tested by zarr-python reading everything libzarr writes.
 
 | Feature | READ | WRITE | Tests | Notes |
 |---|---|---|---|---|
-| `zarr.json` array/group documents | full | rejected (phase 3) | unit:test_v3.cpp, conf:v3 fixture matrix | probe order: zarr.json before .zarray |
+| `zarr.json` array/group documents | full | full | unit:test_v3.cpp#golden-bytes, conf:v3 both directions | probe order: zarr.json before .zarray |
 | strictness: unknown members rejected; `must_understand: false` ignored | full | — | unit:test_v3.cpp#strictness | opt-in lenient mode ignores unknown members |
-| dtypes: bool, u/int 8–64, float16/32/64, complex64/128, `r<bits>` | full | — | unit:test_v3.cpp, conf:dtype matrix | float16 via software binary16 conversion |
-| fill_value: numbers, `"NaN"`/`"Infinity"`/`"-Infinity"`, `0x`/`0b` bit patterns, complex `[re, im]`, raw byte arrays | full | — | unit:test_v3.cpp#fill-forms | null fill rejected (lenient: zeros) |
-| chunk_key_encoding `default` and `v2`, both separators, 0-d (`c` / `0`) | full | — | unit:test_v3.cpp#chunk-keys, conf:v2keys | |
-| codecs: `bytes` (endian) | full | — | conf:dtype matrix | exactly one array->bytes stage enforced |
+| dtypes: bool, u/int 8–64, float16/32/64, complex64/128, `r<bits>` | full | full (`r<bits>` unit-tested only: zarr-python cannot read it) | unit:test_v3.cpp#round-trip-matrix, conf:dtype matrix | float16 via software binary16 conversion |
+| fill_value: numbers, `"NaN"`/`"Infinity"`/`"-Infinity"`, `0x`/`0b` bit patterns, complex `[re, im]`, raw byte arrays | full | full (NaN payloads emit hex; raw emits hex; missing fill synthesizes zeros) | unit:test_v3.cpp#fill-emission | null fill rejected (lenient: zeros) |
+| chunk_key_encoding `default` and `v2`, both separators, 0-d (`c` / `0`) | full | emits `default` + `/` on create; opened encodings preserved | unit:test_v3.cpp#chunk-keys, conf:v2keys | |
+| codecs: `bytes` (endian) | full | full (little) | conf:dtype matrix | exactly one array->bytes stage enforced |
 | codecs: `transpose` | full (arbitrary permutations) | rejected on write | unit:test_codecs.cpp, conf:transposed | |
-| codecs: `gzip` | full | — | conf:gzip matrix | behind `LIBZARR_HAS_ZLIB` |
-| codecs: `blosc` (all shuffles, all cnames) | full | — | unit:test_v3.cpp#blosc, conf:blosc_* | behind `LIBZARR_HAS_BLOSC` |
-| codecs: `crc32c` | full (checksum verified, mismatch = error) | — | unit:test_v3.cpp#crc32c, conf:crc32c | RFC 3720 Castagnoli, not zip's CRC-32 |
+| codecs: `gzip` | full | full | conf:gzip matrix | behind `LIBZARR_HAS_ZLIB` |
+| codecs: `blosc` (all shuffles, all cnames) | full | full | unit:test_v3.cpp#blosc, conf:blosc_* | behind `LIBZARR_HAS_BLOSC` |
+| codecs: `crc32c` | full (checksum verified, mismatch = error) | full | unit:test_v3.cpp#crc32c, conf:crc32c + gzip_crc32c | RFC 3720 Castagnoli, not zip's CRC-32 |
 | codecs: `zstd` | rejected | rejected | unit:test_codecs.cpp | planned |
 | codecs: `sharding_indexed` | rejected with a precise error | rejected | unit:test_v3.cpp | phase 4 (go/no-go milestone) |
 | legacy accepts: `"endian"` codec name, transpose `"C"`/`"F"`, bare codec-name strings | read-only | never emitted | unit:test_v3.cpp#legacy-codec-spellings | pre-final v3 writers |
-| `dimension_names` | full (validated, preserved) | — | unit:test_v3.cpp, conf:named_dims | |
+| `dimension_names` | full (validated, preserved) | full | unit:test_v3.cpp, conf:named_dims both directions | |
 | `storage_transformers` | rejected unless empty | rejected | unit:test_v3.cpp | |
-| consolidated metadata (inline convention, zarr-specs #309) | full | — (phase 3, opt-in) | unit:test_v3.cpp#inline-consolidated, conf:consolidated | a convention, not yet an accepted spec |
+| consolidated metadata (inline convention, zarr-specs #309) | full | opt-in only (`zarr::v3::consolidate`), never unasked | unit:test_v3.cpp#opt-in-consolidation, conf:consolidated | a convention, not yet an accepted spec |
 
 ## Deliberate deviations
 
+- **v3 attribute writes patch `zarr.json` in place**, preserving extension members; all
+  other v3 metadata writes emit the canonical member set only.
 - **`.zarray` byte layout**: we emit deterministic canonical JSON (sorted keys, 4-space
   indent) rather than byte-matching zarr-python's member order. Conformance is defined as
   zarr-python reading everything we write (and vice versa), not byte equality of metadata.

@@ -303,12 +303,140 @@ std::pair<std::shared_ptr<zarr::FilesystemStore>, std::string> split_zip_path(
   return {std::move(dir), path.filename().generic_string()};
 }
 
+// v3 fixtures for zarr-python to read back: the dtype matrix (including
+// float16/complex, which v2 lacks) x {plain, gzip}, plus crc32c chains and
+// the fill potholes. Raw (r<bits>) dtypes are covered by unit tests only:
+// zarr-python does not read them.
+int build_fixtures_v3(const std::shared_ptr<zarr::Store>& store) {
+  auto root = zarr::Group::create(store, "", zarr::ZarrFormat::v3);
+  int count = 0;
+
+  const auto write_pattern = [&](const std::string& name, const zarr::ArraySpec& spec) {
+    auto array = root.create_array(name, spec);
+    const Bytes values = pattern(spec.dtype, array.meta().element_count());
+    array.write(values.data(), values.size());
+    ++count;
+    return array;
+  };
+
+  const std::vector<std::pair<std::string, DataType>> dtypes = {
+      {"bool", DataType::of(DType::boolean)},
+      {"int8", DataType::of(DType::int8)},
+      {"int16", DataType::of(DType::int16)},
+      {"int32", DataType::of(DType::int32)},
+      {"int64", DataType::of(DType::int64)},
+      {"uint8", DataType::of(DType::uint8)},
+      {"uint16", DataType::of(DType::uint16)},
+      {"uint32", DataType::of(DType::uint32)},
+      {"uint64", DataType::of(DType::uint64)},
+      {"float16", DataType::of(DType::float16)},
+      {"float32", DataType::of(DType::float32)},
+      {"float64", DataType::of(DType::float64)},
+      {"complex64", DataType::of(DType::complex64)},
+      {"complex128", DataType::of(DType::complex128)}};
+
+  for (const auto& [tag, dtype] : dtypes) {
+    for (const std::string comp : {"plain", "gzip"}) {
+      zarr::ArraySpec spec;
+      spec.shape = {5, 6};
+      spec.chunks = {2, 4};
+      spec.dtype = dtype;
+#ifdef LIBZARR_HAS_ZLIB
+      if (comp == "gzip") {
+        spec.codecs = {zarr::gzip(5)};
+      }
+#else
+      if (comp == "gzip") {
+        continue;
+      }
+#endif
+      std::string name = tag;
+      name += "_";
+      name += comp;
+      write_pattern(name, spec);
+    }
+  }
+
+  {  // crc32c, alone and after gzip
+    zarr::ArraySpec spec;
+    spec.shape = {5, 6};
+    spec.chunks = {2, 4};
+    spec.dtype = DataType::of(DType::uint16);
+    spec.codecs = {{"crc32c", {}}};
+    write_pattern("crc32c", spec);
+#ifdef LIBZARR_HAS_ZLIB
+    spec.dtype = DataType::of(DType::int64);
+    spec.codecs = {zarr::gzip(1), {"crc32c", {}}};
+    write_pattern("gzip_crc32c", spec);
+#endif
+  }
+#ifdef LIBZARR_HAS_BLOSC
+  {
+    zarr::ArraySpec spec;
+    spec.shape = {5, 6};
+    spec.chunks = {2, 4};
+    spec.dtype = DataType::of(DType::int32);
+    spec.codecs = {
+        {"blosc", {{"cname", "lz4"}, {"clevel", 5}, {"shuffle", "shuffle"}, {"typesize", 4}}}};
+    write_pattern("blosc_lz4", spec);
+  }
+#endif
+  {  // NaN fill, first chunk written only
+    zarr::ArraySpec spec;
+    spec.shape = {6};
+    spec.chunks = {2};
+    spec.dtype = DataType::of(DType::float32);
+    spec.fill = zarr::detail::quiet_nan_bytes(DType::float32);
+    auto array = root.create_array("f4_nanfill", spec);
+    const Bytes head = pattern(spec.dtype, 2);
+    array.write_chunk({0}, head.data(), head.size());
+    array.set_attributes({{"conformance", {{"expect", "partial"}, {"written", 2}}}});
+    ++count;
+  }
+  {  // uint64 fill >= 2^63, nothing written
+    zarr::ArraySpec spec;
+    spec.shape = {4};
+    spec.chunks = {2};
+    spec.dtype = DataType::of(DType::uint64);
+    const std::uint64_t big = (1ULL << 63U) + 1;
+    spec.fill = Bytes(8);
+    std::memcpy(spec.fill->data(), &big, 8);
+    auto array = root.create_array("u8_bigfill", spec);
+    array.set_attributes({{"conformance", {{"expect", "fill"}}}});
+    ++count;
+  }
+  {  // 0-d
+    zarr::ArraySpec spec;
+    spec.dtype = DataType::of(DType::float64);
+    auto array = root.create_array("f8_0d", spec);
+    const double v = 3.25;
+    array.write(&v, 8);
+    array.set_attributes({{"conformance", {{"expect", "scalar"}, {"value", 3.25}}}});
+    ++count;
+  }
+  {  // dimension names + nested group
+    zarr::ArraySpec spec;
+    spec.shape = {3, 4};
+    spec.chunks = {3, 4};
+    spec.dtype = DataType::of(DType::int64);
+    spec.dimension_names = {"y", "x"};
+    write_pattern("outer/named_dims", spec);
+  }
+
+  zarr::v3::consolidate(*store);
+  std::cout << "wrote " << count << " v3 arrays\n";
+  return 0;
+}
+
 int dispatch(const std::string& mode, const std::string& target) {
   if (mode == "read") {
     return verify_store(std::make_shared<zarr::FilesystemStore>(target, /*create=*/false), target);
   }
   if (mode == "write") {
     return build_fixtures(std::make_shared<zarr::FilesystemStore>(target));
+  }
+  if (mode == "write-v3") {
+    return build_fixtures_v3(std::make_shared<zarr::FilesystemStore>(target));
   }
   if (mode == "read-zip") {
     auto [dir, name] = split_zip_path(target);
@@ -322,7 +450,8 @@ int dispatch(const std::string& mode, const std::string& target) {
     std::cout << "packed into " << target << "\n";
     return 0;
   }
-  std::cerr << "usage: conformance_tool read|write <dir> | read-zip|write-zip <file.zip>\n";
+  std::cerr
+      << "usage: conformance_tool read|write|write-v3 <dir> | read-zip|write-zip <file.zip>\n";
   return 2;
 }
 
@@ -330,7 +459,8 @@ int dispatch(const std::string& mode, const std::string& target) {
 
 int main(int argc, char** argv) {
   if (argc != 3) {
-    std::cerr << "usage: conformance_tool read|write <dir> | read-zip|write-zip <file.zip>\n";
+    std::cerr
+        << "usage: conformance_tool read|write|write-v3 <dir> | read-zip|write-zip <file.zip>\n";
     return 2;
   }
   try {

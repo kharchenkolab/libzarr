@@ -3,7 +3,10 @@
 #ifndef LIBZARR_V3_HPP
 #define LIBZARR_V3_HPP
 
+#include <array>
+#include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <optional>
 #include <string>
@@ -461,6 +464,188 @@ inline std::string chunk_key(const std::vector<std::uint64_t>& index, char separ
     key += std::to_string(i);
   }
   return key;
+}
+
+// ---- emission (canonical, deterministic) ------------------------------------
+
+/// Emits the canonical v3 data_type name.
+inline std::string emit_data_type(DataType dt) {
+  switch (dt.kind) {
+    case DType::boolean:
+      return "bool";
+    case DType::int8:
+      return "int8";
+    case DType::int16:
+      return "int16";
+    case DType::int32:
+      return "int32";
+    case DType::int64:
+      return "int64";
+    case DType::uint8:
+      return "uint8";
+    case DType::uint16:
+      return "uint16";
+    case DType::uint32:
+      return "uint32";
+    case DType::uint64:
+      return "uint64";
+    case DType::float16:
+      return "float16";
+    case DType::float32:
+      return "float32";
+    case DType::float64:
+      return "float64";
+    case DType::complex64:
+      return "complex64";
+    case DType::complex128:
+      return "complex128";
+    case DType::raw:
+      return "r" + std::to_string(std::uint64_t{dt.itemsize} * 8);
+  }
+  throw error("v3 emission not implemented for this dtype");
+}
+
+namespace detail_v3 {
+
+/// "0x..." form of native-order `bytes` (emitted as a big-endian numeral,
+/// matching the parse direction).
+inline std::string hex_bit_string(const Bytes& bytes, bool reverse_for_endianness) {
+  constexpr std::string_view kDigits = "0123456789abcdef";
+  std::string out = "0x";
+  for (std::size_t i = 0; i < bytes.size(); ++i) {
+    const std::size_t at =
+        reverse_for_endianness && detail::host_is_little_endian() ? bytes.size() - 1 - i : i;
+    out.push_back(kDigits[static_cast<std::size_t>(bytes[at]) >> 4U]);
+    out.push_back(kDigits[static_cast<std::size_t>(bytes[at]) & 0x0FU]);
+  }
+  return out;
+}
+
+/// One float component as canonical v3 JSON. Non-finite values use the spec
+/// strings; a NaN with a non-default payload must use the hex form
+/// (v3 core: the hex form is the only NaN-payload representation).
+inline json emit_float_fill(const std::uint8_t* data, DType kind, std::uint32_t width) {
+  double v = 0;
+  if (kind == DType::float16) {
+    std::uint16_t bits = 0;
+    std::memcpy(&bits, data, 2);
+    v = detail::half_bits_to_double(bits);
+  } else if (kind == DType::float32) {
+    float f = 0;
+    std::memcpy(&f, data, 4);
+    v = static_cast<double>(f);
+  } else {
+    std::memcpy(&v, data, 8);
+  }
+  if (std::isnan(v)) {
+    const Bytes bits(data, data + width);
+    if (bits == detail::quiet_nan_bytes(kind)) {
+      return "NaN";
+    }
+    return hex_bit_string(bits, /*reverse_for_endianness=*/true);
+  }
+  if (std::isinf(v)) {
+    return v > 0 ? "Infinity" : "-Infinity";
+  }
+  return v;
+}
+
+}  // namespace detail_v3
+
+/// Emits a normalized fill as canonical v3 JSON. A missing fill (legal only
+/// on leniently-read metadata) is synthesized as zeros: v3 requires a
+/// concrete fill_value.
+inline json emit_fill(const std::optional<Bytes>& fill, DataType dt) {
+  const Bytes zeros(dt.itemsize, 0);
+  const Bytes& bytes = fill ? *fill : zeros;
+  switch (dt.kind) {
+    case DType::boolean:
+      return bytes[0] != 0;
+    case DType::float16:
+    case DType::float32:
+    case DType::float64:
+      return detail_v3::emit_float_fill(bytes.data(), dt.kind, dt.itemsize);
+    case DType::complex64:
+    case DType::complex128: {
+      const DType component = dt.kind == DType::complex64 ? DType::float32 : DType::float64;
+      const std::uint32_t half = dt.itemsize / 2;
+      return json::array({detail_v3::emit_float_fill(bytes.data(), component, half),
+                          detail_v3::emit_float_fill(bytes.data() + half, component, half)});
+    }
+    case DType::raw:
+      return detail_v3::hex_bit_string(bytes, /*reverse_for_endianness=*/false);
+    default:
+      // Integers reuse the version-independent emission (plain JSON numbers).
+      return detail::fill_to_json(bytes, dt);
+  }
+}
+
+/// Emits canonical v3 array metadata. Deterministic: fixed member set (empty
+/// attributes and absent dimension_names are omitted), sorted keys, stable
+/// forms.
+inline json emit_array_meta(const ArrayMeta& meta) {
+  json j;
+  j["zarr_format"] = 3;
+  j["node_type"] = "array";
+  j["shape"] = meta.shape;
+  j["data_type"] = emit_data_type(meta.dtype);
+  j["chunk_grid"] = {{"name", "regular"}, {"configuration", {{"chunk_shape", meta.chunk_shape}}}};
+  j["chunk_key_encoding"] = {
+      {"name", meta.key_encoding == ChunkKeyKind::v3_default ? "default" : "v2"},
+      {"configuration", {{"separator", std::string(1, meta.dimension_separator)}}}};
+  j["fill_value"] = emit_fill(meta.fill, meta.dtype);
+  json codecs = json::array();
+  for (const CodecSpec& codec : meta.codecs) {
+    json c = {{"name", codec.name}};
+    if (codec.configuration.is_object() && !codec.configuration.empty()) {
+      c["configuration"] = codec.configuration;
+    }
+    codecs.push_back(std::move(c));
+  }
+  j["codecs"] = std::move(codecs);
+  if (meta.attributes.is_object() && !meta.attributes.empty()) {
+    j["attributes"] = meta.attributes;
+  }
+  if (meta.dimension_names.is_array()) {
+    j["dimension_names"] = meta.dimension_names;
+  }
+  return j;
+}
+
+/// Emits canonical v3 group metadata.
+inline json emit_group_meta(const json& attributes) {
+  json j;
+  j["zarr_format"] = 3;
+  j["node_type"] = "group";
+  if (attributes.is_object() && !attributes.empty()) {
+    j["attributes"] = attributes;
+  }
+  return j;
+}
+
+/// Builds (or rebuilds) the inline consolidated-metadata member of the root
+/// zarr.json from every v3 document in the store. Opt-in and explicit: the
+/// convention (zarr-specs #309) is not yet an accepted spec, so libzarr never
+/// writes it unasked.
+inline void consolidate(Store& store) {
+  const auto root_bytes = store.read(kMetaKey);
+  if (!root_bytes) {
+    throw error("v3::consolidate: no zarr.json at the store root");
+  }
+  json root = v2::parse_json(*root_bytes, kMetaKey);
+  json metadata = json::object();
+  for (const std::string& key : store.list_prefix("")) {
+    if (key == kMetaKey || !detail::ends_with(key, std::string("/") + kMetaKey)) {
+      continue;
+    }
+    const std::string path = key.substr(0, key.size() - std::string(kMetaKey).size() - 1);
+    if (const auto bytes = store.read(key)) {
+      metadata[path] = v2::parse_json(*bytes, key);
+    }
+  }
+  root["consolidated_metadata"] = {
+      {"kind", "inline"}, {"must_understand", false}, {"metadata", std::move(metadata)}};
+  store.write(kMetaKey, canonical_json_bytes(root));
 }
 
 }  // namespace zarr::v3

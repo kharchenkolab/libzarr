@@ -34,20 +34,18 @@ struct GroupChildren {
 /// A Zarr group bound to a Store.
 class Group {
  public:
-  /// Creates a v2 group at `path` ("" = store root), including any missing
-  /// ancestor groups (writers that skip intermediate .zgroup documents are a
-  /// known interop hazard).
+  /// Creates a group at `path` ("" = store root) in the requested format,
+  /// including any missing ancestor groups (writers that skip intermediate
+  /// group documents are a known interop hazard). Existing group documents
+  /// along the chain are left untouched.
   static Group create(std::shared_ptr<Store> store, const std::string& path = "",
                       ZarrFormat format = ZarrFormat::v2) {
     if (!store) {
       throw error("Group::create: null store");
     }
-    if (format != ZarrFormat::v2) {
-      throw error("Group::create: v3 write support arrives in a later phase");
-    }
     detail::validate_path(path);
-    write_group_chain(*store, path);
-    return {std::move(store), path, json::object(), nullptr};
+    write_group_chain(*store, path, format);
+    return {std::move(store), path, json::object(), nullptr, format, OpenOptions{}};
   }
 
   /// Opens the group at `path`, probing v3 (zarr.json) first, then v2.
@@ -99,10 +97,25 @@ class Group {
   /// User attributes (.zattrs).
   [[nodiscard]] const json& attributes() const { return attributes_; }
 
-  /// Replaces the user attributes and persists them.
+  /// Replaces the user attributes and persists them. For v3, the stored
+  /// zarr.json is patched in place, preserving any extension members.
   void set_attributes(json attributes) {
-    check_writable();
     attributes_ = std::move(attributes);
+    if (format_ == ZarrFormat::v3) {
+      const std::string key = v3::meta_key(path_);
+      const auto bytes = store_->read(key);
+      if (!bytes) {
+        throw error(key + ": metadata disappeared");
+      }
+      json doc = v2::parse_json(*bytes, key);
+      if (attributes_.empty()) {
+        doc.erase("attributes");
+      } else {
+        doc["attributes"] = attributes_;
+      }
+      store_->write(key, canonical_json_bytes(doc));
+      return;
+    }
     const std::string key = v2::meta_key(path_, v2::kAttrsSuffix);
     if (attributes_.empty()) {
       v2::erase_meta_key(*store_, key);  // canonical: no empty .zattrs documents
@@ -111,19 +124,18 @@ class Group {
     }
   }
 
-  /// Creates a child (possibly nested, e.g. "a/b") group.
-  Group create_group(const std::string& name) {
-    check_writable();
-    return create(store_, child_path(name), ZarrFormat::v2);
-  }
+  /// Creates a child (possibly nested, e.g. "a/b") group in this group's
+  /// format.
+  Group create_group(const std::string& name) { return create(store_, child_path(name), format_); }
 
   /// Creates a child (possibly nested) array, writing ancestor groups first.
-  Array create_array(const std::string& name, const ArraySpec& spec) {
-    check_writable();
+  /// The group's format governs; spec.format is ignored.
+  Array create_array(const std::string& name, ArraySpec spec) {
+    spec.format = format_;
     const std::string target = child_path(name);
     const std::size_t slash = target.rfind('/');
     if (slash != std::string::npos) {
-      write_group_chain(*store_, target.substr(0, slash));
+      write_group_chain(*store_, target.substr(0, slash), format_);
     }
     return Array::create(store_, target, spec);
   }
@@ -176,12 +188,6 @@ class Group {
         consolidated_(std::move(consolidated)),
         format_(format),
         options_(options) {}
-
-  void check_writable() const {
-    if (format_ == ZarrFormat::v3) {
-      throw error("writing v3 metadata arrives in a later phase");
-    }
-  }
 
   [[nodiscard]] std::optional<json> read_doc(const std::string& key) const {
     if (consolidated_) {
@@ -247,8 +253,8 @@ class Group {
             std::move(consolidated), ZarrFormat::v2, options};
   }
 
-  /// Writes .zgroup at `path` and every missing ancestor.
-  static void write_group_chain(Store& store, const std::string& path) {
+  /// Writes group metadata at `path` and every missing ancestor.
+  static void write_group_chain(Store& store, const std::string& path, ZarrFormat format) {
     std::vector<std::string> chain;
     chain.emplace_back("");
     std::size_t start = 0;
@@ -262,12 +268,24 @@ class Group {
       start = slash + 1;
     }
     for (const std::string& node : chain) {
-      const std::string key = v2::meta_key(node, v2::kGroupSuffix);
       if (store.exists(v2::meta_key(node, v2::kArraySuffix))) {
         throw error("'" + node + "' is an array; cannot create a group inside it");
       }
-      if (!store.exists(key)) {
-        v2::write_meta_key(store, key, v2::group_meta_json());
+      if (format == ZarrFormat::v3) {
+        const std::string key = v3::meta_key(node);
+        if (const auto bytes = store.read(key)) {
+          const json doc = v2::parse_json(*bytes, key);
+          if (doc.is_object() && doc.value("node_type", "") == std::string("array")) {
+            throw error("'" + node + "' is an array; cannot create a group inside it");
+          }
+          continue;  // existing group document: leave it (and its attributes) alone
+        }
+        store.write(key, canonical_json_bytes(v3::emit_group_meta(json::object())));
+      } else {
+        const std::string key = v2::meta_key(node, v2::kGroupSuffix);
+        if (!store.exists(key)) {
+          v2::write_meta_key(store, key, v2::group_meta_json());
+        }
       }
     }
   }

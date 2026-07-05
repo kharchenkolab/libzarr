@@ -7,6 +7,12 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Zarr v3 write** (non-sharded): canonical, deterministic `zarr.json` emission
+  (golden-byte locked); `ArraySpec.format = ZarrFormat::v3` and v3 `Group::create`; v3
+  attribute writes patch metadata in place, preserving extension members; opt-in
+  `zarr::v3::consolidate()` (inline convention); NaN payloads and raw fills emit the hex
+  form; missing fills synthesize zeros. zarr-python reads everything libzarr writes
+  (35-array conformance matrix).
 - **Zarr v3 read** (non-sharded): `zarr.json` parsing with spec-mandated strictness plus an
   opt-in lenient mode; all core dtypes including float16, complex and `r<bits>`; every
   fill_value form (`0x`/`0b` bit patterns, complex pairs); both chunk-key encodings; codecs

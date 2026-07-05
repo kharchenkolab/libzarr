@@ -73,36 +73,43 @@ inline bool next_index(std::vector<std::uint64_t>& index,
 
 /// Parameters for Array::create.
 struct ArraySpec {
+  /// Storage format version to write.
+  ZarrFormat format = ZarrFormat::v2;
   /// Array shape; empty = 0-dimensional.
   std::vector<std::uint64_t> shape;
   /// Chunk shape, same rank as `shape`, extents >= 1.
   std::vector<std::uint64_t> chunks;
   /// Element type.
   DataType dtype;
-  /// bytes->bytes codecs (v2: at most one of zarr::gzip / zarr::zlib).
+  /// bytes->bytes codecs (v2: at most one of zarr::gzip / zarr::zlib;
+  /// v3 additionally zarr::CodecSpec{"blosc", ...} / {"crc32c", {}}).
   std::vector<CodecSpec> codecs;
   /// Fill value as one native-order element; defaults to zeros.
   std::optional<Bytes> fill;
   /// Initial user attributes.
   json attributes = json::object();
-  /// v2 chunk-key separator; '.' is canonical, '/' supported.
+  /// v2 chunk-key separator; '.' is canonical, '/' supported. (v3 arrays are
+  /// created with the "default" encoding and '/' regardless.)
   char dimension_separator = '.';
+  /// v3 dimension_names (array of strings/null, rank length), or null.
+  json dimension_names;
 };
 
 /// A Zarr array bound to a Store. Value-semantics handle: cheap to move,
 /// holds a shared reference to the store.
 class Array {
  public:
-  /// Creates a v2 array at `path` ("" = the store root), writing canonical
-  /// metadata. Fails if the spec is invalid; overwrites existing metadata.
+  /// Creates an array at `path` ("" = the store root) in spec.format,
+  /// writing canonical metadata. Fails if the spec is invalid; overwrites
+  /// existing metadata.
   static Array create(std::shared_ptr<Store> store, const std::string& path,
                       const ArraySpec& spec) {
     if (!store) {
       throw error("Array::create: null store");
     }
     detail::validate_path(path);
-    const std::string ctx =
-        path.empty() ? std::string(v2::kArraySuffix) : path + "/" + v2::kArraySuffix;
+    const bool v3 = spec.format == ZarrFormat::v3;
+    const std::string ctx = v3 ? v3::meta_key(path) : v2::meta_key(path, v2::kArraySuffix);
     if (spec.chunks.size() != spec.shape.size()) {
       throw error(ctx + ": chunks rank " + std::to_string(spec.chunks.size()) + " != shape rank " +
                   std::to_string(spec.shape.size()));
@@ -117,12 +124,27 @@ class Array {
     }
 
     ArrayMeta meta;
-    meta.format = ZarrFormat::v2;
+    meta.format = spec.format;
     meta.shape = spec.shape;
     meta.chunk_shape = spec.chunks;
     meta.dtype = spec.dtype;
-    meta.dimension_separator = spec.dimension_separator;
     meta.attributes = spec.attributes;
+    if (v3) {
+      // Canonical v3 creation: the "default" chunk-key encoding with '/'.
+      meta.key_encoding = ChunkKeyKind::v3_default;
+      meta.dimension_separator = '/';
+      if (spec.dimension_names.is_array()) {
+        if (spec.dimension_names.size() != spec.shape.size()) {
+          throw error(ctx + ": dimension_names must have rank length");
+        }
+        meta.dimension_names = spec.dimension_names;
+      }
+    } else {
+      meta.dimension_separator = spec.dimension_separator;
+      if (!spec.dimension_names.is_null()) {
+        throw error(ctx + ": dimension_names is a v3 feature");
+      }
+    }
     if (spec.fill) {
       if (spec.fill->size() != spec.dtype.itemsize) {
         throw error(ctx + ": fill is " + std::to_string(spec.fill->size()) +
@@ -138,8 +160,13 @@ class Array {
     }
 
     Array array(std::move(store), path, std::move(meta));  // resolves + validates codecs
-    v2::write_meta_key(*array.store_, array.meta_store_key(), v2::emit_array_meta(array.meta_));
-    array.write_attributes();
+    if (v3) {
+      array.store_->write(v3::meta_key(path),
+                          canonical_json_bytes(v3::emit_array_meta(array.meta_)));
+    } else {
+      v2::write_meta_key(*array.store_, array.meta_store_key(), v2::emit_array_meta(array.meta_));
+      array.write_attributes();
+    }
     return array;
   }
 
@@ -298,12 +325,25 @@ class Array {
   /// User attributes (.zattrs).
   [[nodiscard]] const json& attributes() const { return meta_.attributes; }
 
-  /// Replaces the user attributes and persists them.
+  /// Replaces the user attributes and persists them. For v3, the stored
+  /// zarr.json is patched in place, preserving any extension members.
   void set_attributes(json attributes) {
-    if (meta_.format == ZarrFormat::v3) {
-      throw error("writing v3 metadata arrives in a later phase");
-    }
     meta_.attributes = std::move(attributes);
+    if (meta_.format == ZarrFormat::v3) {
+      const std::string key = v3::meta_key(path_);
+      const auto bytes = store_->read(key);
+      if (!bytes) {
+        throw error(key + ": metadata disappeared");
+      }
+      json doc = v2::parse_json(*bytes, key);
+      if (meta_.attributes.empty()) {
+        doc.erase("attributes");
+      } else {
+        doc["attributes"] = meta_.attributes;
+      }
+      store_->write(key, canonical_json_bytes(doc));
+      return;
+    }
     write_attributes();
   }
 

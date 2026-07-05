@@ -26,6 +26,10 @@ def pattern(dtype: np.dtype, n: int) -> np.ndarray:
         return ((i * 7 + 3) % 101).astype(dtype)
     if dtype.kind == "f":
         return ((i % 51).astype(np.float64) * 0.25 - 5.0).astype(dtype)
+    if dtype.kind == "c":
+        real = (i % 51).astype(np.float64) * 0.25 - 5.0
+        imag = (i % 23).astype(np.float64) * 0.5 - 2.0
+        return (real + 1j * imag).astype(dtype)
     if dtype.kind == "V":
         out = np.zeros(n, dtype=dtype)
         view = out.view(np.uint8).reshape(n, dtype.itemsize)
@@ -56,7 +60,7 @@ def verify_array(z: zarr.Array, name: str) -> None:
         expected[:n] = pattern(z.dtype, n)
     else:
         expected = pattern(z.dtype, z.size)
-    if z.dtype.kind == "f":
+    if z.dtype.kind in "fc":
         ok = np.array_equal(got, expected, equal_nan=True)
     elif z.dtype.kind == "V":
         ok = got.tobytes() == expected.tobytes()
@@ -69,10 +73,17 @@ def main() -> None:
     root = sys.argv[1]
     store = make_store(root)
 
+    import json
+
     paths = []
     for dirpath, _dirnames, filenames in os.walk(root):
+        rel = os.path.relpath(dirpath, root).replace(os.sep, "/")
         if ".zarray" in filenames:
-            paths.append(os.path.relpath(dirpath, root).replace(os.sep, "/"))
+            paths.append(rel)
+        elif "zarr.json" in filenames:
+            with open(os.path.join(dirpath, "zarr.json")) as f:
+                if json.load(f).get("node_type") == "array":
+                    paths.append(rel)
     check("store", len(paths) > 0, "no arrays found")
 
     for path in sorted(paths):
