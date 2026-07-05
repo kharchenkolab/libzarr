@@ -3,9 +3,9 @@
 A small, dependency-light, **header-only C++17** library for reading and writing the
 [Zarr](https://zarr.dev) array storage format — **v2 and v3**.
 
-> **Status: pre-alpha.** Zarr **v2 and v3 read/write including sharding** work and are
-> conformance-tested against zarr-python in both directions, as are STORED-entry
-> **ZIP archives**. Nothing is API-stable yet.
+> **Status: v0.1 (pre-1.0).** Zarr **v2 and v3 read/write including sharding** work and
+> are conformance-tested against zarr-python in both directions, as are STORED-entry
+> **ZIP archives**. The API may still change before 1.0.
 
 ```cpp
 auto store = std::make_shared<zarr::MemoryStore>();
@@ -47,12 +47,15 @@ write (emit), pinned to specific spec versions, with the test that proves each c
 ## Development
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON
 cmake --build build -j
 (cd build && ctest --output-on-failure)
 ```
 
-Consuming the library needs none of this — it is header-only.
+Consuming the library needs none of this — it is header-only. A single-file build is also
+available: `tools/amalgamate.py` produces `zarr.hpp` (keep `third_party/` on the include
+path for the vendored JSON). Agent-oriented usage recipes live in [SKILL.md](SKILL.md);
+design rationale in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## License
 

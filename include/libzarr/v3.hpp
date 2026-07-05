@@ -25,6 +25,7 @@
 
 namespace zarr::v3 {
 
+/// v3 metadata document name.
 inline constexpr const char* kMetaKey = "zarr.json";
 
 /// Store key of the metadata document for the node at `path` ("" = root).
@@ -475,6 +476,7 @@ inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx, bool le
 
 /// Result of parsing a v3 group zarr.json.
 struct GroupMeta {
+  /// User attributes.
   json attributes = json::object();
   /// Inline consolidated metadata (node path -> zarr.json document), per the
   /// zarr-python convention (zarr-specs #309 — a convention, not yet an

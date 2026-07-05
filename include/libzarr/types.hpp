@@ -14,8 +14,11 @@
 
 // Macros, not constants: consumers need these preprocessor-testable.
 // NOLINTBEGIN(modernize-macro-to-enum,cppcoreguidelines-macro-to-enum)
+/// Library major version.
 #define LIBZARR_VERSION_MAJOR 0
+/// Library minor version.
 #define LIBZARR_VERSION_MINOR 1
+/// Library patch version.
 #define LIBZARR_VERSION_PATCH 0
 // NOLINTEND(modernize-macro-to-enum,cppcoreguidelines-macro-to-enum)
 
@@ -126,9 +129,11 @@ struct DataType {
   /// A raw byte-string type of `size` bytes (v2 `|V<size>`).
   static constexpr DataType raw_bytes(std::uint32_t size) { return DataType{DType::raw, size}; }
 
+  /// Equal kind and size.
   friend constexpr bool operator==(DataType a, DataType b) {
     return a.kind == b.kind && a.itemsize == b.itemsize;
   }
+  /// Differing kind or size.
   friend constexpr bool operator!=(DataType a, DataType b) { return !(a == b); }
 };
 

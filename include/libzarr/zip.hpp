@@ -214,6 +214,8 @@ inline void append_end_records(Bytes& out, std::uint64_t count, std::uint64_t ce
 /// request (plus one 30-byte header read the first time an entry is touched).
 class ZipReader final : public Store {
  public:
+  /// Opens the archive at `archive_key` in `source` (parses its central
+  /// directory with one size probe plus one suffix range read).
   ZipReader(std::shared_ptr<Store> source, std::string archive_key)
       : source_(std::move(source)), key_(std::move(archive_key)) {
     if (!source_) {

@@ -104,7 +104,7 @@ if(LIBZARR_BUILD_TESTS)
   # Fuzz harnesses. The standalone replay build runs the checked-in corpus
   # under any compiler (and the sanitizers, when enabled); the libFuzzer
   # build (clang + LIBZARR_BUILD_FUZZERS) does the real fuzzing in CI.
-  set(LIBZARR_FUZZERS metadata shard_index)
+  set(LIBZARR_FUZZERS metadata shard_index zip)
   option(LIBZARR_BUILD_FUZZERS "Build libFuzzer harnesses (requires clang)" OFF)
   foreach(name IN LISTS LIBZARR_FUZZERS)
     if(NOT EMSCRIPTEN)
@@ -124,7 +124,7 @@ if(LIBZARR_BUILD_TESTS)
   endforeach()
 
   # Examples are compiled AND run: they are the machine-checked documentation.
-  set(LIBZARR_EXAMPLES quickstart)
+  set(LIBZARR_EXAMPLES quickstart custom_store)
   if(LIBZARR_WITH_ZLIB)
     list(APPEND LIBZARR_EXAMPLES compression)
   endif()

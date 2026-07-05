@@ -23,9 +23,13 @@
 
 namespace zarr::v2 {
 
+/// v2 array metadata document name.
 inline constexpr const char* kArraySuffix = ".zarray";
+/// v2 group metadata document name.
 inline constexpr const char* kGroupSuffix = ".zgroup";
+/// v2 attributes document name.
 inline constexpr const char* kAttrsSuffix = ".zattrs";
+/// v2 consolidated-metadata document (store root).
 inline constexpr const char* kConsolidatedKey = ".zmetadata";
 
 /// Store key of a metadata document for the node at `path` ("" = root).
@@ -46,7 +50,9 @@ inline json parse_json(const Bytes& bytes, const std::string& ctx) {
 
 /// A parsed v2 dtype string: the element type plus its stored byte order.
 struct ParsedDType {
+  /// Element type.
   DataType dtype;
+  /// Stored byte order (v2 '>' dtypes).
   bool big_endian = false;
 };
 
@@ -328,6 +334,9 @@ inline std::optional<CodecSpec> parse_compressor(const json& j, const std::strin
 
 }  // namespace detail_v2
 
+/// Parses a .zarray document into normalized ArrayMeta (without attributes,
+/// which live in .zattrs). Unknown members are ignored: v2 predates v3's
+/// must-understand rule and extra keys are common in the wild.
 inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx) {
   if (!j.is_object()) {
     throw error(ctx + ": expected a JSON object");

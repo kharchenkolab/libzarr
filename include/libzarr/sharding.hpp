@@ -73,6 +73,7 @@ struct ShardParams {
   std::string chunk_prefix;
   /// Chunk-key scheme shared by the inner keys and the shard keys.
   ChunkKeyKind key_encoding = ChunkKeyKind::v3_default;
+  /// Separator of both key layers.
   char separator = '/';
   /// Inner chunks per shard, per dimension (outer shape / inner shape).
   std::vector<std::uint64_t> per_shard;
@@ -94,6 +95,7 @@ struct ShardParams {
 /// Internal adapter: listing is not supported.
 class ShardStore final : public Store {
  public:
+  /// Binds inner-chunk keys of `params` onto shard objects in `source`.
   ShardStore(std::shared_ptr<Store> source, ShardParams params)
       : source_(std::move(source)),
         params_(std::move(params)),

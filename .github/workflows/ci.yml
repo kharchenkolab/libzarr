@@ -59,9 +59,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DLIBZARR_BUILD_FUZZERS=ON -DLIBZARR_WITH_ZLIB=ON
-      - run: cmake --build build --target fuzz_metadata fuzz_shard_index -j
+      - run: cmake --build build --target fuzz_metadata fuzz_shard_index fuzz_zip -j
       - run: ./build/fuzz_metadata -max_total_time=60 fuzz/corpus/metadata
       - run: ./build/fuzz_shard_index -max_total_time=60 fuzz/corpus/shard_index
+      - run: ./build/fuzz_zip -max_total_time=60 fuzz/corpus/zip
 
   sanitize:
     runs-on: ubuntu-latest
@@ -83,6 +84,25 @@ jobs:
       - run: >
           clang-tidy -p build --quiet
           $(find build/standalone -name '*.cpp') tests/*.cpp examples/*.cpp
+
+  # Docs are machine-checked or they don't exist: undocumented public symbols
+  # fail this job.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y doxygen
+      - run: doxygen Doxyfile
+
+  # The amalgamated single header must stay generatable and compilable.
+  amalgamation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/amalgamate.py build/zarr.hpp
+      - run: |
+          printf '#include "zarr.hpp"\nint main() { zarr::MemoryStore s; return 0; }\n' > build/t.cpp
+          g++ -std=c++17 -Wall -Wextra -Werror -Ibuild -Ithird_party build/t.cpp -o build/t && ./build/t
 
   # The WASM gate: the zero-dependency core must compile under Emscripten and
   # the tests must pass under node. Required check — WASM compatibility is a

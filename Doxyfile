@@ -1,0 +1,20 @@
+# libzarr API documentation. The docs build is a gate: undocumented public
+# symbols are errors (docs are machine-checked or they don't exist).
+PROJECT_NAME           = libzarr
+PROJECT_BRIEF          = "Header-only C++17 Zarr v2/v3, WASM-compatible"
+INPUT                  = include/libzarr README.md docs/SPEC.md docs/DESIGN.md
+USE_MDFILE_AS_MAINPAGE = README.md
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */detail/*
+STRIP_FROM_PATH        = include
+OUTPUT_DIRECTORY       = build/docs
+GENERATE_LATEX         = NO
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
+PREDEFINED             = LIBZARR_HAS_ZLIB=1 LIBZARR_HAS_BLOSC=1
+MACRO_EXPANSION        = YES
+EXTRACT_ALL            = NO
+HIDE_UNDOC_MEMBERS     = NO
+EXCLUDE_SYMBOLS        = *::detail *::detail_* detail detail_*

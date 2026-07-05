@@ -19,3 +19,16 @@ jobs:
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON -DLIBZARR_WITH_BLOSC=ON
       - run: cmake --build build -j
       - run: ctest --test-dir build -R conformance --output-on-failure
+
+  # Weekly long fuzz runs (the PR gate only fuzzes for 60s per harness).
+  fuzz-long:
+    runs-on: ubuntu-latest
+    env:
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DLIBZARR_BUILD_FUZZERS=ON -DLIBZARR_WITH_ZLIB=ON
+      - run: cmake --build build --target fuzz_metadata fuzz_shard_index fuzz_zip -j
+      - run: ./build/fuzz_metadata -max_total_time=900 fuzz/corpus/metadata
+      - run: ./build/fuzz_shard_index -max_total_time=900 fuzz/corpus/shard_index
+      - run: ./build/fuzz_zip -max_total_time=900 fuzz/corpus/zip

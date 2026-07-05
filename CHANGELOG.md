@@ -4,9 +4,17 @@ All notable changes to libzarr are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions will follow
 [SemVer](https://semver.org) once 1.0 is reached.
 
-## [Unreleased]
+## [0.1.0] - 2026-07-05
+
+First tagged release: the complete storage-format engine. Zarr v2 and v3 read/write
+including sharding, ZIP archives, conformance-tested against zarr-python 2.x and 3.x in
+both directions; WASM-clean core.
 
 ### Added
+- **Release tooling**: `tools/amalgamate.py` (single-header build, compile-checked in CI),
+  Doxygen documentation gate (undocumented public symbols fail CI), `SKILL.md` agent
+  recipes, `examples/custom_store.cpp`, fuzz harness for ZIP directories, weekly long fuzz
+  runs, `docs/DESIGN.md`.
 - **Sharding (`sharding_indexed`)**, read and write, including nested shards, both
   `index_location`s on read, crc32c-verified indices, byte-range reads into shards, and
   read-modify-write shard updates. Modeled as a `ShardStore` adapter (see docs/DESIGN.md,
