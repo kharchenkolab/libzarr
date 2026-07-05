@@ -7,22 +7,63 @@ A small, dependency-light, **header-only C++17** library for reading and writing
 > are conformance-tested against zarr-python in both directions, as are STORED-entry
 > **ZIP archives**. The API may still change before 1.0.
 
+## Usage highlights
+
+The snippets below are abridged from [`examples/`](examples/), where every example is a
+complete program compiled and run in CI. Agent-oriented recipes live in
+[SKILL.md](SKILL.md).
+
+**Create and write** — v2 or v3, optionally sharded
+(from [`examples/quickstart.cpp`](examples/quickstart.cpp) and
+[`examples/custom_store.cpp`](examples/custom_store.cpp)):
+
 ```cpp
 auto store = std::make_shared<zarr::MemoryStore>();
-auto root = zarr::Group::create(store);
+auto root  = zarr::Group::create(store, "", zarr::ZarrFormat::v3);
 
 zarr::ArraySpec spec;
-spec.shape = {4, 6};
-spec.chunks = {2, 3};
-spec.dtype = zarr::DataType::of(zarr::DType::float32);
-auto temperature = root.create_array("temperature", spec);
+spec.shape  = {8, 8};
+spec.chunks = {2, 2};
+spec.shards = {4, 4};                     // optional (v3): pack chunks into shard objects
+spec.dtype  = zarr::DataType::of(zarr::DType::float32);
+spec.codecs = {zarr::gzip(5)};            // or {"blosc", {...}}, {"crc32c", {}}
+auto array = root.create_array("temperature", spec);
 
-temperature.write(data.data(), data.size() * sizeof(float));
-temperature.set_attributes({{"units", "celsius"}});
+array.write(data.data(), data.size() * sizeof(float));   // whole array, C order
+array.set_attributes({{"units", "celsius"}});
 ```
 
-(from [`examples/quickstart.cpp`](examples/quickstart.cpp) — every example is compiled and
-run in CI)
+**Read an existing store** — the format version is probed automatically, consolidated
+metadata is used when present:
+
+```cpp
+auto store = std::make_shared<zarr::FilesystemStore>("/data/example.zarr");
+auto array = zarr::Group::open(store).open_array("temperature");
+
+std::vector<float> out(array.nbytes() / sizeof(float));
+array.read(out.data(), out.size() * sizeof(float));
+
+zarr::Bytes chunk = array.read_chunk({1, 2});              // one chunk, fill-padded
+zarr::Bytes part  = array.read_chunk_range({1, 2}, 8, 16); // elements [8, 24) of a chunk,
+                                                           // fetched as a byte range
+```
+
+**ZIP archives** — a whole store in one file, chunks still byte-range-readable
+(from [`examples/archive.cpp`](examples/archive.cpp)):
+
+```cpp
+zarr::zip_pack(*store, *dest, "data.zarr.zip");            // STORED entries, ZIP64-aware
+auto zipped = std::make_shared<zarr::ZipReader>(dest, "data.zarr.zip");
+auto array  = zarr::Group::open(zipped).open_array("temperature");
+```
+
+**Custom backends** — everything runs against the key→bytes `zarr::Store` interface;
+subclass it to serve bytes from HTTP, a database, a cache, or `fetch()` under WASM
+(from [`examples/custom_store.cpp`](examples/custom_store.cpp)).
+
+Compression at work: [`examples/compression.cpp`](examples/compression.cpp). Anything that
+goes wrong — malformed metadata, unknown codecs, out-of-range reads — throws `zarr::error`
+with a precise message.
 
 ## Goals
 
@@ -41,8 +82,13 @@ run in CI)
 
 ## Spec support
 
-Documented systematically in [docs/SPEC.md](docs/SPEC.md): what we read (accept), what we
-write (emit), pinned to specific spec versions, with the test that proves each claim.
+libzarr implements the [Zarr v2 spec](https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html)
+and the [Zarr v3 core spec (v3.1)](https://zarr-specs.readthedocs.io/en/latest/v3/core/index.html)
+with its named codec specs, including
+[`sharding_indexed`](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html).
+What we read (accept) and write (emit) is documented feature-by-feature in
+[docs/SPEC.md](docs/SPEC.md), each claim citing the test that proves it; architecture
+rationale lives in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Development
 
@@ -54,8 +100,7 @@ cmake --build build -j
 
 Consuming the library needs none of this — it is header-only. A single-file build is also
 available: `tools/amalgamate.py` produces `zarr.hpp` (keep `third_party/` on the include
-path for the vendored JSON). Agent-oriented usage recipes live in [SKILL.md](SKILL.md);
-design rationale in [docs/DESIGN.md](docs/DESIGN.md).
+path for the vendored JSON).
 
 ## License
 

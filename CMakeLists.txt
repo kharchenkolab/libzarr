@@ -124,7 +124,7 @@ if(LIBZARR_BUILD_TESTS)
   endforeach()
 
   # Examples are compiled AND run: they are the machine-checked documentation.
-  set(LIBZARR_EXAMPLES quickstart custom_store)
+  set(LIBZARR_EXAMPLES quickstart custom_store archive)
   if(LIBZARR_WITH_ZLIB)
     list(APPEND LIBZARR_EXAMPLES compression)
   endif()
