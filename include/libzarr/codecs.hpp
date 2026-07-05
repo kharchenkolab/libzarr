@@ -19,6 +19,9 @@
 #ifdef LIBZARR_HAS_BLOSC
 #include "libzarr/codecs_blosc.hpp"
 #endif
+#ifdef LIBZARR_HAS_ZSTD
+#include "libzarr/codecs_zstd.hpp"
+#endif
 
 /// \file codecs.hpp
 /// The codec pipeline: a chain of CodecSpec resolved once per array into an
@@ -160,6 +163,7 @@ class CodecPipeline {
       deflate,  // gzip/zlib framing
       crc32c,
       blosc,
+      zstd,
     };
     Kind kind = Kind::deflate;
     // deflate
@@ -171,6 +175,9 @@ class CodecPipeline {
     int blosc_shuffle = 1;
     std::uint32_t blosc_typesize = 1;
     std::uint64_t blosc_blocksize = 0;
+    // zstd
+    int zstd_level = 0;
+    bool zstd_checksum = false;
   };
 
   [[nodiscard]] static Bytes encode_stage(const ByteStage& stage, Bytes data) {
@@ -202,6 +209,12 @@ class CodecPipeline {
       }
 #else
         throw error("codec requires blosc but LIBZARR_HAS_BLOSC is not defined");
+#endif
+      case ByteStage::Kind::zstd:
+#ifdef LIBZARR_HAS_ZSTD
+        return detail::zstd_compress_bytes(data, stage.zstd_level, stage.zstd_checksum, "encode");
+#else
+        throw error("codec requires zstd but LIBZARR_HAS_ZSTD is not defined");
 #endif
     }
     return data;  // unreachable
@@ -236,6 +249,12 @@ class CodecPipeline {
         return detail::blosc_decompress_bytes(data, expected, "decode");
 #else
         throw error("codec requires blosc but LIBZARR_HAS_BLOSC is not defined");
+#endif
+      case ByteStage::Kind::zstd:
+#ifdef LIBZARR_HAS_ZSTD
+        return detail::zstd_decompress_bytes(data, expected, "decode");
+#else
+        throw error("codec requires zstd but LIBZARR_HAS_ZSTD is not defined");
 #endif
     }
     return data;  // unreachable
@@ -314,7 +333,7 @@ class CodecPipeline {
     } else if (codec.name == "blosc") {
       add_blosc(codec, meta);
     } else if (codec.name == "zstd") {
-      throw error("codec 'zstd' is not supported yet");
+      add_zstd(codec);
     } else if (codec.name == "sharding_indexed") {
       throw error(
           "codec 'sharding_indexed' is not supported yet (sharding arrives in a later "
@@ -338,6 +357,28 @@ class CodecPipeline {
 #ifndef LIBZARR_HAS_ZLIB
     throw error("codec '" + codec.name +
                 "' is not built into this libzarr (compile with LIBZARR_HAS_ZLIB and link zlib)");
+#endif
+    byte_stages_.push_back(stage);
+  }
+
+  void add_zstd(const CodecSpec& codec) {
+    ByteStage stage;
+    stage.kind = ByteStage::Kind::zstd;
+    const json config = codec.configuration.is_object() ? codec.configuration : json::object();
+    const json level = config.value("level", json(std::int64_t{0}));
+    if (!level.is_number_integer()) {
+      throw error("codec 'zstd': 'level' must be an integer");
+    }
+    stage.zstd_level = level.get<int>();
+    const json checksum = config.value("checksum", json(false));
+    if (!checksum.is_boolean()) {
+      throw error("codec 'zstd': 'checksum' must be a boolean");
+    }
+    stage.zstd_checksum = checksum.get<bool>();
+#ifndef LIBZARR_HAS_ZSTD
+    throw error(
+        "codec 'zstd' is not built into this libzarr (compile with LIBZARR_HAS_ZSTD and link "
+        "zstd)");
 #endif
     byte_stages_.push_back(stage);
   }

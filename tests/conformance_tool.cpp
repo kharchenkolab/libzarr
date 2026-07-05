@@ -160,6 +160,12 @@ int verify_store(const std::shared_ptr<zarr::Store>& store, const std::string& w
       continue;
     }
 #endif
+#ifndef LIBZARR_HAS_ZSTD
+    if (path.find("zstd") != std::string::npos && path.find("blosc") == std::string::npos) {
+      ++skipped;  // fixture needs a codec this build omits
+      continue;
+    }
+#endif
     verify_array(zarr::Array::open(store, path), path);
     ++count;
   }
@@ -222,6 +228,26 @@ int build_fixtures(const std::shared_ptr<zarr::Store>& store) {
     spec.dtype = DataType::of(DType::float32);
     spec.codecs = {zarr::gzip(5)};
     write_pattern("f4_gzip", spec);
+  }
+#endif
+#ifdef LIBZARR_HAS_BLOSC
+  {  // zarr-python 2.x's default compressor form
+    zarr::ArraySpec spec;
+    spec.shape = {5, 6};
+    spec.chunks = {2, 4};
+    spec.dtype = DataType::of(DType::int32);
+    spec.codecs = {zarr::blosc("lz4", 5, "shuffle")};
+    write_pattern("blosc_lz4", spec);
+  }
+#endif
+#ifdef LIBZARR_HAS_ZSTD
+  {  // numcodecs zstd (zarr-python 3's default for v2-format arrays)
+    zarr::ArraySpec spec;
+    spec.shape = {5, 6};
+    spec.chunks = {2, 4};
+    spec.dtype = DataType::of(DType::uint16);
+    spec.codecs = {zarr::zstd(0, false)};
+    write_pattern("zstd_v2", spec);
   }
 #endif
 
@@ -379,6 +405,19 @@ int build_fixtures_v3(const std::shared_ptr<zarr::Store>& store) {
     spec.codecs = {
         {"blosc", {{"cname", "lz4"}, {"clevel", 5}, {"shuffle", "shuffle"}, {"typesize", 4}}}};
     write_pattern("blosc_lz4", spec);
+  }
+#endif
+#ifdef LIBZARR_HAS_ZSTD
+  {  // zarr-python 3's default codec chain
+    zarr::ArraySpec spec;
+    spec.shape = {5, 6};
+    spec.chunks = {2, 4};
+    spec.dtype = DataType::of(DType::float64);
+    spec.codecs = {zarr::zstd(0, false)};
+    write_pattern("zstd_default", spec);
+    spec.dtype = DataType::of(DType::int64);
+    spec.codecs = {zarr::zstd(5, true)};
+    write_pattern("zstd_checksum", spec);
   }
 #endif
   {  // NaN fill, first chunk written only

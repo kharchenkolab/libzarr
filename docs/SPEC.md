@@ -38,7 +38,8 @@ against zarr-python by `tests/conformance/` in CI.
 | `order: "C"` | full | full | conf:dtype matrix | |
 | `order: "F"` | read-only | rejected | unit:test_codecs.cpp#transpose-decode, conf:i4_forder | lowered to a transpose codec; writes refused |
 | compressor: `null`, `zlib`, `gzip` | full | full | unit:test_codecs.cpp#gzip-zlib-roundtrip, conf:compressor matrix | zlib=RFC1950, gzip=RFC1952; framing auto-detected on read |
-| compressor: `blosc` | rejected | rejected | unit:test_v2_metadata.cpp#zarray-parsing | planned (phase 2, feature-flagged) |
+| compressor: `zstd` (zarr-python 3.x default for v2 arrays) | full | full | unit:test_v2_metadata.cpp#zstd, conf:zstd_v2 | behind `LIBZARR_HAS_ZSTD` |
+| compressor: `blosc` (zarr-python 2.x default) | full | full (numeric shuffle form) | unit:test_v2_metadata.cpp#blosc, conf:blosc_default | behind `LIBZARR_HAS_BLOSC`; `-1` auto-shuffle tolerated |
 | other compressors | rejected | rejected | unit:test_v2_metadata.cpp#zarray-parsing | error names the id |
 | `filters` | rejected (`null`/`[]` = none) | emits `null` | unit:test_v2_metadata.cpp#filters | `[]` read as none: appears in the wild |
 | fill_value: numbers, bool, `"NaN"`/`"Infinity"`/`"-Infinity"`, base64 | full | full | unit:test_v2_metadata.cpp#fill-potholes, conf:f4_nanfill | NaN emitted as `"NaN"`; pinned quiet-NaN payloads |
@@ -79,7 +80,7 @@ fill forms; conformance-tested by zarr-python reading everything libzarr writes.
 | codecs: `gzip` | full | full | conf:gzip matrix | behind `LIBZARR_HAS_ZLIB` |
 | codecs: `blosc` (all shuffles, all cnames) | full | full | unit:test_v3.cpp#blosc, conf:blosc_* | behind `LIBZARR_HAS_BLOSC` |
 | codecs: `crc32c` | full (checksum verified, mismatch = error) | full | unit:test_v3.cpp#crc32c, conf:crc32c + gzip_crc32c | RFC 3720 Castagnoli, not zip's CRC-32 |
-| codecs: `zstd` | rejected | rejected | unit:test_codecs.cpp | planned |
+| codecs: `zstd` (zarr-python 3.x default) | full (content-size and streaming frames, checksum verified) | full | unit:test_v3.cpp#zstd, conf:zstd_default + zstd_checksum | behind `LIBZARR_HAS_ZSTD` |
 | codecs: `sharding_indexed` (incl. nested) | full | full (`ArraySpec::shards`; index emits `bytes`+`crc32c`, `index_location: end`) | unit:test_sharding.cpp, conf:sharded_* both directions | modeled as a Store adapter; see docs/DESIGN.md |
 | sharding: `index_location` `end`/`start` | full | emits `end` | unit:test_sharding.cpp, fuzz:shard_index | |
 | sharding: byte-range sub-chunk reads through shards | full | n/a | unit:test_sharding.cpp#range-request | one index fetch + one range per read |

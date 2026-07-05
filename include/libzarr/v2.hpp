@@ -327,7 +327,17 @@ inline std::optional<CodecSpec> parse_compressor(const json& j, const std::strin
     return CodecSpec{id, {{"level", level}}};
   }
   if (id == "blosc") {
-    throw error(ctx + ": compressor 'blosc' is not supported yet");
+    // numcodecs Blosc: numeric shuffle (-1 = auto), no typesize member (the
+    // dtype's itemsize applies). Values are validated at codec resolution.
+    return CodecSpec{"blosc",
+                     {{"cname", it->value("cname", "lz4")},
+                      {"clevel", it->value("clevel", std::int64_t{5})},
+                      {"shuffle", it->value("shuffle", std::int64_t{1})},
+                      {"blocksize", it->value("blocksize", std::int64_t{0})}}};
+  }
+  if (id == "zstd") {
+    // numcodecs Zstd (zarr-python 3's default for v2-format arrays).
+    return CodecSpec{"zstd", {{"level", it->value("level", std::int64_t{0})}}};
   }
   throw error(ctx + ": unsupported v2 compressor '" + id + "'");
 }
@@ -438,6 +448,25 @@ inline json emit_array_meta(const ArrayMeta& meta) {
     } else if (codec.name == "gzip" || codec.name == "zlib") {
       j["compressor"] = {{"id", codec.name},
                          {"level", codec.configuration.value("level", std::int64_t{1})}};
+    } else if (codec.name == "blosc") {
+      // Canonical numcodecs form: numeric shuffle.
+      const json shuffle = codec.configuration.value("shuffle", json(1));
+      std::int64_t shuffle_num = 1;
+      if (shuffle.is_number_integer()) {
+        shuffle_num = shuffle.get<std::int64_t>();
+      } else if (shuffle == "noshuffle") {
+        shuffle_num = 0;
+      } else if (shuffle == "bitshuffle") {
+        shuffle_num = 2;
+      }
+      j["compressor"] = {{"id", "blosc"},
+                         {"cname", codec.configuration.value("cname", "lz4")},
+                         {"clevel", codec.configuration.value("clevel", std::int64_t{5})},
+                         {"shuffle", shuffle_num},
+                         {"blocksize", codec.configuration.value("blocksize", std::int64_t{0})}};
+    } else if (codec.name == "zstd") {
+      j["compressor"] = {{"id", "zstd"},
+                         {"level", codec.configuration.value("level", std::int64_t{0})}};
     } else {
       throw error("v2 cannot represent codec '" + codec.name + "'");
     }

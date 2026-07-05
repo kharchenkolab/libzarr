@@ -34,11 +34,11 @@ jobs:
       CXX: ${{ matrix.cxx }}
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libblosc-dev
+      - run: sudo apt-get update && sudo apt-get install -y libblosc-dev libzstd-dev
       # Pinned conformance track: the PR gate uses a fixed zarr-python
       # (3.x writes both v2 and v3 fixtures).
       - run: pip install zarr==3.2.1 numcodecs numpy
-      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON -DLIBZARR_WITH_BLOSC=ON
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON -DLIBZARR_WITH_BLOSC=ON -DLIBZARR_WITH_ZSTD=ON
       - run: cmake --build build -j
       - run: ctest --test-dir build --output-on-failure
 
@@ -79,7 +79,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: pip install clang-tidy==18.1.8
-      - run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLIBZARR_WITH_ZLIB=ON
+      - run: sudo apt-get update && sudo apt-get install -y libzstd-dev
+      - run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLIBZARR_WITH_ZLIB=ON -DLIBZARR_WITH_ZSTD=ON
       - run: cmake --build build -j # generates standalone-header TUs
       - run: >
           clang-tidy -p build --quiet

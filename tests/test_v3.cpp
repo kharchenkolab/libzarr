@@ -1,6 +1,10 @@
 #include <doctest/doctest.h>
 #include <libzarr/libzarr.hpp>
 
+#ifdef LIBZARR_HAS_ZSTD
+#include <zstd.h>
+#endif
+
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -524,3 +528,112 @@ TEST_CASE("v3 hierarchy create + opt-in consolidation") {
   data.read(out.data(), 4);
   CHECK(out == values);
 }
+
+#ifdef LIBZARR_HAS_ZSTD
+TEST_CASE("zstd codec round-trip (zarr-python 3's default)") {
+  for (const bool checksum : {false, true}) {
+    CAPTURE(checksum);
+    zarr::ArrayMeta meta;
+    meta.shape = {64};
+    meta.chunk_shape = {64};
+    meta.dtype = DataType::of(DType::uint8);
+    meta.codecs = {{"bytes", {}}, zarr::zstd(checksum ? 5 : 0, checksum)};
+    const auto pipeline = zarr::CodecPipeline::resolve(meta);
+    Bytes chunk(64);
+    for (std::size_t i = 0; i < chunk.size(); ++i) {
+      chunk[i] = static_cast<std::uint8_t>(i % 5);
+    }
+    const Bytes stored = pipeline.encode(chunk);
+    CHECK(stored.size() < chunk.size());
+    CHECK(pipeline.decode(stored) == chunk);
+  }
+}
+
+TEST_CASE("zstd corrupt/truncated chunks are precise errors") {
+  zarr::ArrayMeta meta;
+  meta.shape = {32};
+  meta.chunk_shape = {32};
+  meta.dtype = DataType::of(DType::uint8);
+  meta.codecs = {{"bytes", {}}, zarr::zstd()};
+  const auto pipeline = zarr::CodecPipeline::resolve(meta);
+  CHECK_THROWS_AS((void)pipeline.decode(Bytes{1, 2, 3}), zarr::error);
+  Bytes stored = pipeline.encode(Bytes(32, 9));
+  stored.resize(stored.size() / 2);
+  CHECK_THROWS_AS((void)pipeline.decode(stored), zarr::error);
+  // Wrong decoded size
+  zarr::ArrayMeta small = meta;
+  small.shape = {16};
+  small.chunk_shape = {16};
+  const Bytes bigger = pipeline.encode(Bytes(32, 9));
+  CHECK_THROWS_AS((void)zarr::CodecPipeline::resolve(small).decode(bigger), zarr::error);
+}
+
+TEST_CASE("zstd frames without a content size decode via streaming") {
+  // Streaming writers omit the frame content size; craft such a frame.
+  const Bytes plain(96, 7);
+  ZSTD_CCtx* cctx = ZSTD_createCCtx();
+  REQUIRE(cctx != nullptr);
+  ZSTD_CCtx_setParameter(cctx, ZSTD_c_contentSizeFlag, 0);
+  Bytes frame(ZSTD_compressBound(plain.size()));
+  ZSTD_outBuffer ob{frame.data(), frame.size(), 0};
+  ZSTD_inBuffer in{plain.data(), plain.size(), 0};
+  REQUIRE(ZSTD_compressStream2(cctx, &ob, &in, ZSTD_e_end) == 0);
+  ZSTD_freeCCtx(cctx);
+  frame.resize(ob.pos);
+  REQUIRE(ZSTD_getFrameContentSize(frame.data(), frame.size()) == ZSTD_CONTENTSIZE_UNKNOWN);
+
+  CHECK(zarr::detail::zstd_decompress_bytes(frame, plain.size(), "test") == plain);
+  CHECK(zarr::detail::zstd_decompress_bytes(frame, std::nullopt, "test") == plain);
+  CHECK_THROWS_AS((void)zarr::detail::zstd_decompress_bytes(frame, 8, "test"), zarr::error);
+}
+
+TEST_CASE("v3 array with default zarr-python codecs round-trips") {
+  auto store = std::make_shared<zarr::MemoryStore>();
+  zarr::ArraySpec spec;
+  spec.format = zarr::ZarrFormat::v3;
+  spec.shape = {5, 6};
+  spec.chunks = {2, 4};
+  spec.dtype = DataType::of(DType::float64);
+  spec.codecs = {zarr::zstd(0, false)};  // what zarr-python 3 writes by default
+  auto array = zarr::Array::create(store, "z", spec);
+  std::vector<double> values(30);
+  for (std::size_t i = 0; i < 30; ++i) {
+    values[i] = static_cast<double>(i) * 0.5;
+  }
+  array.write(values.data(), 240);
+  std::vector<double> out(30);
+  zarr::Array::open(store, "z").read(out.data(), 240);
+  CHECK(out == values);
+}
+#else
+TEST_CASE("zstd without the library fails at resolve with a clear error") {
+  zarr::ArrayMeta meta;
+  meta.shape = {4};
+  meta.chunk_shape = {4};
+  meta.dtype = DataType::of(DType::uint8);
+  meta.codecs = {{"bytes", {}}, {"zstd", {}}};
+  CHECK_THROWS_AS((void)zarr::CodecPipeline::resolve(meta), zarr::error);
+}
+#endif
+
+#ifdef LIBZARR_HAS_BLOSC
+TEST_CASE("v2 array with zarr-python 2's default blosc round-trips") {
+  auto store = std::make_shared<zarr::MemoryStore>();
+  zarr::ArraySpec spec;
+  spec.shape = {5, 6};
+  spec.chunks = {2, 4};
+  spec.dtype = DataType::of(DType::int32);
+  spec.codecs = {zarr::blosc("lz4", 5, "shuffle")};
+  auto array = zarr::Array::create(store, "b", spec);
+  std::vector<std::int32_t> values(30);
+  for (std::size_t i = 0; i < 30; ++i) {
+    values[i] = static_cast<std::int32_t>(i);
+  }
+  array.write(values.data(), 120);
+  std::vector<std::int32_t> out(30);
+  zarr::Array::open(store, "b").read(out.data(), 120);
+  CHECK(out == values);
+  const auto doc = zarr::v2::parse_json(*store->read("b/.zarray"), "b/.zarray");
+  CHECK(doc.at("compressor").at("id") == "blosc");
+}
+#endif

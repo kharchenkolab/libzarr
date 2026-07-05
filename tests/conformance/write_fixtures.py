@@ -66,6 +66,21 @@ def main() -> None:
                compressor=numcodecs.GZip(5), fill_value=0)
     z[:] = pattern(z.dtype, 30).reshape(5, 6)
 
+    # zarr-python 2.x's DEFAULT compressor: blosc/lz4, shuffle=1
+    z = create("blosc_default", shape=(5, 6), chunks=(2, 4), dtype="<i4",
+               compressor=numcodecs.Blosc(cname="lz4", clevel=5, shuffle=1),
+               fill_value=0)
+    z[:] = pattern(z.dtype, 30).reshape(5, 6)
+    # blosc with bitshuffle and a different internal codec
+    z = create("blosc_zstd_bitshuffle", shape=(5, 6), chunks=(2, 4), dtype="<f8",
+               compressor=numcodecs.Blosc(cname="zstd", clevel=3, shuffle=2),
+               fill_value=0)
+    z[:] = pattern(z.dtype, 30).reshape(5, 6)
+    # zarr-python 3.x's default for v2-format arrays: numcodecs zstd
+    z = create("zstd_v2", shape=(5, 6), chunks=(2, 4), dtype="<u2",
+               compressor=numcodecs.Zstd(level=0), fill_value=0)
+    z[:] = pattern(z.dtype, 30).reshape(5, 6)
+
     # big-endian storage
     z = create("f8_bigendian", shape=(7,), chunks=(3,), dtype=">f8",
                compressor=None, fill_value=0)

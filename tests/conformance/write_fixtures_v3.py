@@ -57,6 +57,14 @@ def main() -> None:
                compressors=[BloscCodec(cname="zstd", clevel=3, shuffle="shuffle")])
     z[:] = pattern(z.dtype, 30).reshape(5, 6)
 
+    # zarr-python 3's DEFAULT compressor (zstd level 0), via defaulting
+    z = zarr.create_array(store=store, name="zstd_default", shape=(5, 6),
+                          chunks=(2, 4), dtype="int32", fill_value=0)
+    z[:] = pattern(z.dtype, 30).reshape(5, 6)
+    z = create("zstd_checksum", shape=(5, 6), chunks=(2, 4), dtype="float64",
+               compressors=[zarr.codecs.ZstdCodec(level=5, checksum=True)])
+    z[:] = pattern(z.dtype, 30).reshape(5, 6)
+
     # crc32c alone and stacked after gzip
     z = create("crc32c", shape=(5, 6), chunks=(2, 4), dtype="uint16",
                compressors=[Crc32cCodec()])

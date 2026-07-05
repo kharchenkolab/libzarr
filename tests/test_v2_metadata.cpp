@@ -277,3 +277,39 @@ TEST_CASE("v2 chunk keys") {
   CHECK(zarr::v2::chunk_key({1, 23, 4}, '.') == "1.23.4");
   CHECK(zarr::v2::chunk_key({1, 23, 4}, '/') == "1/23/4");
 }
+
+TEST_CASE("v2 blosc compressor lowers to the blosc codec") {
+  // The exact document zarr-python 2.x writes by default.
+  json j = minimal_zarray();
+  j["compressor"] = {
+      {"blocksize", 0}, {"clevel", 5}, {"cname", "lz4"}, {"id", "blosc"}, {"shuffle", 1}};
+  const auto meta = zarr::v2::parse_array_meta(j, "test");
+  REQUIRE(meta.codecs.size() == 2);
+  CHECK(meta.codecs[1].name == "blosc");
+  CHECK(meta.codecs[1].configuration.at("cname") == "lz4");
+  CHECK(meta.codecs[1].configuration.at("clevel") == 5);
+  CHECK(meta.codecs[1].configuration.at("shuffle") == 1);
+
+  // Round-trips through canonical emission (numeric shuffle preserved).
+  const json emitted = zarr::v2::emit_array_meta(meta);
+  CHECK(emitted.at("compressor").at("id") == "blosc");
+  CHECK(emitted.at("compressor").at("shuffle") == 1);
+  const auto reparsed = zarr::v2::parse_array_meta(emitted, "test");
+  CHECK(reparsed.codecs[1].configuration == meta.codecs[1].configuration);
+
+  // v3-style named shuffle maps to the numeric numcodecs form on emission.
+  zarr::ArrayMeta named = meta;
+  named.codecs[1] = zarr::blosc("zstd", 3, "bitshuffle");
+  CHECK(zarr::v2::emit_array_meta(named).at("compressor").at("shuffle") == 2);
+}
+
+TEST_CASE("v2 zstd compressor lowers to the zstd codec") {
+  // zarr-python 3.x's default for v2-format arrays.
+  json j = minimal_zarray();
+  j["compressor"] = {{"id", "zstd"}, {"level", 0}};
+  const auto meta = zarr::v2::parse_array_meta(j, "test");
+  REQUIRE(meta.codecs.size() == 2);
+  CHECK(meta.codecs[1].name == "zstd");
+  CHECK(meta.codecs[1].configuration.at("level") == 0);
+  CHECK(zarr::v2::emit_array_meta(meta).at("compressor") == json({{"id", "zstd"}, {"level", 0}}));
+}

@@ -45,6 +45,19 @@ inline CodecSpec gzip(int level = 5) { return {"gzip", {{"level", level}}}; }
 /// Convenience factory: zlib (RFC 1950) at `level` (0-9). Zarr v2 only.
 inline CodecSpec zlib(int level = 5) { return {"zlib", {{"level", level}}}; }
 
+/// Convenience factory: blosc (v3-style named shuffle: "noshuffle",
+/// "shuffle" or "bitshuffle").
+inline CodecSpec blosc(const std::string& cname = "lz4", int clevel = 5,
+                       const std::string& shuffle = "shuffle") {
+  return {"blosc", {{"cname", cname}, {"clevel", clevel}, {"shuffle", shuffle}}};
+}
+
+/// Convenience factory: zstd. Level 0 means zstd's default; `checksum`
+/// appends a frame checksum.
+inline CodecSpec zstd(int level = 0, bool checksum = false) {
+  return {"zstd", {{"level", level}, {"checksum", checksum}}};
+}
+
 /// Chunk-key scheme. v2: indices joined by a separator ('.' default), rank 0
 /// is "0". v3 "default": "c" prefix + separator-joined indices ('/' default),
 /// rank 0 is "c". v3's "v2" encoding maps onto `v2`.

@@ -4,6 +4,16 @@ All notable changes to libzarr are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions will follow
 [SemVer](https://semver.org) once 1.0 is reached.
 
+## [Unreleased]
+
+### Added
+- **zarr-python default codecs**: v2 `blosc` compressor objects (zarr-python 2.x's
+  default) now lower onto the blosc codec, and a new `zstd` codec (behind
+  `LIBZARR_HAS_ZSTD`) covers zarr-python 3.x's default for both v3 arrays and v2 arrays —
+  stores written with zarr-python's out-of-the-box settings are now fully readable and
+  writable. Includes streaming decompression for zstd frames without a content size and
+  `zarr::blosc()` / `zarr::zstd()` codec factories.
+
 ## [0.1.0] - 2026-07-05
 
 First tagged release: the complete storage-format engine. Zarr v2 and v3 read/write
