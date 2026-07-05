@@ -47,8 +47,8 @@ TEST_CASE("v2 dtype parsing") {
   CHECK(parse(">f8").big_endian);
   CHECK_FALSE(parse(">u1").big_endian);  // single-byte: order is irrelevant
 
-  CHECK_THROWS_AS((void)parse("<f2"), zarr::error);  // float16: not yet
-  CHECK_THROWS_AS((void)parse("<c8"), zarr::error);  // complex: not yet
+  CHECK(parse("<f2").dtype == DataType::of(DType::float16));
+  CHECK(parse("<c8").dtype == DataType::of(DType::complex64));
   CHECK_THROWS_AS((void)parse("<S8"), zarr::error);  // strings: unsupported
   CHECK_THROWS_AS((void)parse("<M8"), zarr::error);  // datetime: unsupported
   CHECK_THROWS_AS((void)parse("f4"), zarr::error);   // missing byte order
@@ -330,4 +330,57 @@ TEST_CASE("nlohmann exceptions never escape metadata parsing (fuzz 2026-07-05)")
   j = minimal_zarray();
   j["compressor"] = {{"id", "blosc"}, {"cname", 5}};
   CHECK_THROWS_AS((void)zarr::v2::parse_array_meta(j, "test"), zarr::error);
+}
+
+TEST_CASE("v2 float16 and complex dtypes (parity with v3)") {
+  const auto parse = [](const char* s) { return zarr::v2::parse_dtype(s, "test"); };
+
+  SUBCASE("parsing") {
+    CHECK(parse("<f2").dtype == DataType::of(DType::float16));
+    CHECK(parse("<c8").dtype == DataType::of(DType::complex64));
+    CHECK(parse("<c16").dtype == DataType::of(DType::complex128));
+    CHECK(parse(">c8").big_endian);
+    CHECK(parse(">f2").big_endian);
+    CHECK_THROWS_AS((void)parse("<c4"), zarr::error);
+    CHECK_THROWS_AS((void)parse("<f1"), zarr::error);
+  }
+  SUBCASE("canonical emission") {
+    CHECK(zarr::v2::emit_dtype(DataType::of(DType::float16), false) == "<f2");
+    CHECK(zarr::v2::emit_dtype(DataType::of(DType::complex64), false) == "<c8");
+    CHECK(zarr::v2::emit_dtype(DataType::of(DType::complex128), true) == ">c16");
+  }
+  SUBCASE("float16 fills are 2 bytes, including non-finite strings") {
+    const auto f2 = DataType::of(DType::float16);
+    CHECK(fill_as<std::uint16_t>(zarr::v2::parse_fill("NaN", f2, "t")) == 0x7e00U);
+    CHECK(fill_as<std::uint16_t>(zarr::v2::parse_fill("Infinity", f2, "t")) == 0x7c00U);
+    CHECK(fill_as<std::uint16_t>(zarr::v2::parse_fill("-Infinity", f2, "t")) == 0xfc00U);
+    CHECK(fill_as<std::uint16_t>(zarr::v2::parse_fill(json(0.25), f2, "t")) == 0x3400U);
+  }
+  SUBCASE("complex fills are [re, im] (zarr-python's v2 form)") {
+    const auto c8 = DataType::of(DType::complex64);
+    const auto fill = zarr::v2::parse_fill(json::array({1.5, "NaN"}), c8, "t");
+    REQUIRE(fill.has_value());
+    REQUIRE(fill->size() == 8);
+    float re = 0;
+    float im = 0;
+    std::memcpy(&re, fill->data(), 4);
+    std::memcpy(&im, fill->data() + 4, 4);
+    CHECK(re == 1.5F);
+    CHECK(std::isnan(im));
+    CHECK_THROWS_AS((void)zarr::v2::parse_fill(json(1.5), c8, "t"), zarr::error);
+
+    // Emission round-trips the pair form.
+    CHECK(zarr::detail::fill_to_json(fill, c8) == json::array({1.5, "NaN"}));
+  }
+  SUBCASE("f16/complex .zarray documents round-trip") {
+    json j = minimal_zarray();
+    j["dtype"] = "<c16";
+    j["fill_value"] = {0.0, 0.0};
+    const auto meta = zarr::v2::parse_array_meta(j, "test");
+    CHECK(meta.dtype == DataType::of(DType::complex128));
+    const auto emitted = zarr::v2::emit_array_meta(meta);
+    CHECK(emitted.at("dtype") == "<c16");
+    CHECK(emitted.at("fill_value") == json::array({0.0, 0.0}));
+    CHECK(zarr::v2::parse_array_meta(emitted, "test").dtype == meta.dtype);
+  }
 }

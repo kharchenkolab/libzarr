@@ -32,8 +32,8 @@ against zarr-python by `tests/conformance/` in CI.
 | dtypes: bool, u/int 8–64, f32/f64, little-endian | full | full | unit:test_v2_metadata.cpp#v2-dtype-parsing, conf:dtype matrix | |
 | big-endian dtypes (`>`) | read-only | preserved on re-emit only | unit:test_codecs.cpp#byteswap, conf:f8_bigendian | new arrays are always `<` / `\|` |
 | raw dtypes (`\|V<n>`) | full | full | conf:V8_raw | fill via base64 per v2 spec |
-| float16 (`<f2`) | rejected | rejected | unit:test_v2_metadata.cpp#v2-dtype-parsing | planned (phase 2: parse) |
-| complex (`c8`/`c16`) | rejected | rejected | unit:test_v2_metadata.cpp#v2-dtype-parsing | planned (phase 2) |
+| float16 (`<f2`) | full | full | unit:test_v2_metadata.cpp#float16-complex, conf:f2 matrix | software binary16, as in v3 |
+| complex (`c8`/`c16`) | full | full | unit:test_v2_metadata.cpp#float16-complex, conf:c8/c16 matrix | fills are `[re, im]` pairs (zarr-python form); byte order per component |
 | string/datetime/structured dtypes | rejected | rejected | unit:test_v2_metadata.cpp#v2-dtype-parsing | |
 | `order: "C"` | full | full | conf:dtype matrix | |
 | `order: "F"` | read-only | rejected | unit:test_codecs.cpp#transpose-decode, conf:i4_forder | lowered to a transpose codec; writes refused |

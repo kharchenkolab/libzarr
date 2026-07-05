@@ -33,6 +33,10 @@ def pattern(dtype: np.dtype, n: int) -> np.ndarray:
         return ((i * 7 + 3) % 101).astype(dtype)
     if dtype.kind == "f":
         return ((i % 51).astype(np.float64) * 0.25 - 5.0).astype(dtype)
+    if dtype.kind == "c":
+        real = (i % 51).astype(np.float64) * 0.25 - 5.0
+        imag = (i % 23).astype(np.float64) * 0.5 - 2.0
+        return (real + 1j * imag).astype(dtype)
     if dtype.kind == "V":
         out = np.zeros(n, dtype=dtype)
         view = out.view(np.uint8).reshape(n, dtype.itemsize)
@@ -55,7 +59,8 @@ def main() -> None:
         return zarr.create(store=store, path=name, **kwargs)
 
     # dtype x {raw, zlib} matrix on a 2-d shape with edge chunks
-    for dt in ["|b1", "|i1", "<i2", "<i4", "<i8", "|u1", "<u2", "<u4", "<u8", "<f4", "<f8"]:
+    for dt in ["|b1", "|i1", "<i2", "<i4", "<i8", "|u1", "<u2", "<u4", "<u8",
+               "<f2", "<f4", "<f8", "<c8", "<c16"]:
         for comp_name, comp in [("raw", None), ("zlib", numcodecs.Zlib(1))]:
             name = f"{dt[1:]}_{comp_name}"
             z = create(name, shape=(5, 6), chunks=(2, 4), dtype=dt,

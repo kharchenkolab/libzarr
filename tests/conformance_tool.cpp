@@ -194,12 +194,13 @@ int build_fixtures(const std::shared_ptr<zarr::Store>& store) {
   };
 
   const std::vector<std::pair<std::string, DataType>> dtypes = {
-      {"b1", DataType::of(DType::boolean)}, {"i1", DataType::of(DType::int8)},
-      {"i2", DataType::of(DType::int16)},   {"i4", DataType::of(DType::int32)},
-      {"i8", DataType::of(DType::int64)},   {"u1", DataType::of(DType::uint8)},
-      {"u2", DataType::of(DType::uint16)},  {"u4", DataType::of(DType::uint32)},
-      {"u8", DataType::of(DType::uint64)},  {"f4", DataType::of(DType::float32)},
-      {"f8", DataType::of(DType::float64)}};
+      {"b1", DataType::of(DType::boolean)},   {"i1", DataType::of(DType::int8)},
+      {"i2", DataType::of(DType::int16)},     {"i4", DataType::of(DType::int32)},
+      {"i8", DataType::of(DType::int64)},     {"u1", DataType::of(DType::uint8)},
+      {"u2", DataType::of(DType::uint16)},    {"u4", DataType::of(DType::uint32)},
+      {"u8", DataType::of(DType::uint64)},    {"f2", DataType::of(DType::float16)},
+      {"f4", DataType::of(DType::float32)},   {"f8", DataType::of(DType::float64)},
+      {"c8", DataType::of(DType::complex64)}, {"c16", DataType::of(DType::complex128)}};
 
   for (const auto& [tag, dtype] : dtypes) {
     for (const std::string comp : {"raw", "zlib"}) {

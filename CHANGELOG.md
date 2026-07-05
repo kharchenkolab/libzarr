@@ -4,6 +4,13 @@ All notable changes to libzarr are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions will follow
 [SemVer](https://semver.org) once 1.0 is reached.
 
+## [Unreleased]
+
+### Added
+- **v2 float16 and complex dtypes** (`<f2`, `<c8`, `<c16`), read and write — dtype parity
+  with v3. Complex fills use zarr-python's `[re, im]` pair form; float16 non-finite string
+  fills now encode to the correct 2-byte values.
+
 ## [0.2.0] - 2026-07-05
 
 Stores written with zarr-python's out-of-the-box settings are now fully supported,

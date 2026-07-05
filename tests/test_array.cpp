@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 #include <libzarr/libzarr.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -436,4 +437,43 @@ TEST_CASE("region I/O on 0-d arrays") {
   double out = 0;
   array.read_region({}, {}, &out, 8);
   CHECK(out == 6.5);
+}
+
+TEST_CASE("v2 float16 and complex arrays round-trip") {
+  for (const auto dtype : {DataType::of(DType::float16), DataType::of(DType::complex64),
+                           DataType::of(DType::complex128)}) {
+    CAPTURE(dtype.itemsize);
+    auto store = std::make_shared<zarr::MemoryStore>();
+    ArraySpec spec;
+    spec.shape = {5, 6};
+    spec.chunks = {2, 4};
+    spec.dtype = dtype;
+    auto array = zarr::Array::create(store, "p", spec);
+    Bytes values(static_cast<std::size_t>(30) * dtype.itemsize);
+    for (std::size_t i = 0; i < values.size(); ++i) {
+      values[i] = static_cast<std::uint8_t>((i * 31 + 5) % 251);
+    }
+    array.write(values.data(), values.size());
+    Bytes out(values.size());
+    zarr::Array::open(store, "p").read(out.data(), out.size());
+    CHECK(out == values);
+  }
+}
+
+TEST_CASE("big-endian v2 complex swaps per component") {
+  // '>c8' means each float component is big-endian, not the 8-byte element.
+  auto store = std::make_shared<zarr::MemoryStore>();
+  const std::string zarray = R"({
+    "zarr_format": 2, "shape": [1], "chunks": [1], "dtype": ">c8",
+    "order": "C", "fill_value": null, "compressor": null, "filters": null
+  })";
+  store->write("c/.zarray", Bytes(zarray.begin(), zarray.end()));
+  // 1.5f BE = 3f c0 00 00; -2.5f BE = c0 20 00 00
+  store->write("c/0", Bytes{0x3f, 0xc0, 0x00, 0x00, 0xc0, 0x20, 0x00, 0x00});
+
+  auto array = zarr::Array::open(store, "c");
+  std::array<float, 2> out{};
+  array.read(out.data(), 8);
+  CHECK(out[0] == 1.5F);
+  CHECK(out[1] == -2.5F);
 }

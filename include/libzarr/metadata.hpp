@@ -366,6 +366,13 @@ inline json fill_to_json(const std::optional<Bytes>& fill, DataType dt) {
       }
       return v;
     }
+    case DType::complex64:
+    case DType::complex128: {
+      const DType component = dt.kind == DType::complex64 ? DType::float32 : DType::float64;
+      const std::uint32_t half = dt.itemsize / 2;
+      return json::array({fill_to_json(Bytes(p, p + half), DataType::of(component)),
+                          fill_to_json(Bytes(p + half, p + dt.itemsize), DataType::of(component))});
+    }
     case DType::raw:
       return base64_encode(p, dt.itemsize);
     default:

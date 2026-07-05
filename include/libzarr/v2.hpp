@@ -91,13 +91,16 @@ DataType dtype_of_code(char code, std::uint64_t size, const Fail& fail) {
     case 'u':
       return int_dtype(code == 'i', size, fail);
     case 'f':
+      if (size == 2) {
+        return DataType::of(DType::float16);
+      }
       if (size == 4) {
         return DataType::of(DType::float32);
       }
       if (size == 8) {
         return DataType::of(DType::float64);
       }
-      fail(size == 2 ? "float16 is not supported yet" : "float size must be 4 or 8");
+      fail("float size must be 2, 4 or 8");
       break;
     case 'V':
       if (size == 0) {
@@ -105,7 +108,13 @@ DataType dtype_of_code(char code, std::uint64_t size, const Fail& fail) {
       }
       return DataType::raw_bytes(static_cast<std::uint32_t>(size));
     case 'c':
-      fail("complex dtypes are not supported yet");
+      if (size == 8) {
+        return DataType::of(DType::complex64);
+      }
+      if (size == 16) {
+        return DataType::of(DType::complex128);
+      }
+      fail("complex size must be 8 or 16");
       break;
     case 'S':
     case 'U':
@@ -171,10 +180,16 @@ inline std::string emit_dtype(DataType dt, bool big_endian) {
       return std::string(1, order_multi) + "u4";
     case DType::uint64:
       return std::string(1, order_multi) + "u8";
+    case DType::float16:
+      return std::string(1, order_multi) + "f2";
     case DType::float32:
       return std::string(1, order_multi) + "f4";
     case DType::float64:
       return std::string(1, order_multi) + "f8";
+    case DType::complex64:
+      return std::string(1, order_multi) + "c8";
+    case DType::complex128:
+      return std::string(1, order_multi) + "c16";
     case DType::raw:
       return "|V" + std::to_string(dt.itemsize);
     default:
@@ -190,23 +205,34 @@ inline std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::st
 
 namespace detail_v2 {
 
-inline std::optional<Bytes> non_finite_fill(const std::string& s, DataType dt) {
+inline std::optional<Bytes> non_finite_fill(const std::string& s, DType kind) {
   // v2 spec: "NaN", "Infinity" and "-Infinity" are the sanctioned string
   // encodings of non-finite floats. "+Infinity" appears in the wild (it is
   // the v3 spelling); accept it on read.
   if (s == "NaN") {
-    return detail::quiet_nan_bytes(dt.kind);
+    return detail::quiet_nan_bytes(kind);
   }
-  const bool f32 = dt.kind == DType::float32;
   if (s == "Infinity" || s == "+Infinity") {
-    return f32 ? detail::scalar_bytes(std::numeric_limits<float>::infinity())
-               : detail::scalar_bytes(std::numeric_limits<double>::infinity());
+    return detail::infinity_bytes(kind, false);
   }
   if (s == "-Infinity") {
-    return f32 ? detail::scalar_bytes(-std::numeric_limits<float>::infinity())
-               : detail::scalar_bytes(-std::numeric_limits<double>::infinity());
+    return detail::infinity_bytes(kind, true);
   }
   return std::nullopt;
+}
+
+/// One complex component: a number or a non-finite string (zarr-python's v2
+/// complex fill form mirrors v3's [re, im] pairs).
+inline Bytes complex_component_fill(const json& v, DType kind, const std::string& ctx) {
+  if (v.is_number()) {
+    return detail::fill_from_double(v.get<double>(), DataType::of(kind), ctx);
+  }
+  if (v.is_string()) {
+    if (auto fill = non_finite_fill(v.get<std::string>(), kind)) {
+      return *std::move(fill);
+    }
+  }
+  throw error(ctx + ": cannot interpret complex fill_value component " + v.dump());
 }
 
 /// GDAL's Zarr driver emits numeric fills as JSON strings (read tolerance);
@@ -239,7 +265,7 @@ inline std::optional<Bytes> numeric_string_fill(const std::string& s, DataType d
 
 inline Bytes string_fill(const std::string& s, DataType dt, const std::string& ctx) {
   if (is_float(dt.kind)) {
-    if (auto fill = non_finite_fill(s, dt)) {
+    if (auto fill = non_finite_fill(s, dt.kind)) {
       return *std::move(fill);
     }
   }
@@ -265,6 +291,14 @@ inline std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::st
     return std::nullopt;  // v2 spec: null = fill value undefined (reads as zeros)
   }
   if (v.is_array()) {
+    if (is_complex(dt.kind) && v.size() == 2) {
+      // zarr-python encodes v2 complex fills as [re, im], like v3.
+      const DType component = dt.kind == DType::complex64 ? DType::float32 : DType::float64;
+      Bytes out = detail_v2::complex_component_fill(v[0], component, ctx);
+      const Bytes imag = detail_v2::complex_component_fill(v[1], component, ctx);
+      out.insert(out.end(), imag.begin(), imag.end());
+      return out;
+    }
     // NCZarr 4.8.0 wraps fill_value in a 1-element array (read tolerance).
     if (v.size() == 1) {
       return parse_fill(v[0], dt, ctx);
