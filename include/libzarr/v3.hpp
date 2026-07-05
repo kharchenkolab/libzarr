@@ -290,6 +290,9 @@ inline std::vector<CodecSpec> parse_codecs(const json& v, std::size_t rank,
     } else if (c.is_object() && c.contains("name") && c["name"].is_string()) {
       spec.name = c["name"].get<std::string>();
       spec.configuration = c.value("configuration", json::object());
+      if (!spec.configuration.is_object()) {
+        throw error(ctx + ": codec '" + spec.name + "' configuration must be an object");
+      }
     } else {
       throw error(ctx + ": each codec must be an object with a 'name'");
     }
@@ -413,8 +416,9 @@ inline void lower_sharding(ArrayMeta& meta, const std::string& ctx) {
 
 }  // namespace detail_v3
 
-/// Parses a v3 array zarr.json document into normalized ArrayMeta.
-inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx, bool lenient = false) {
+namespace detail_v3 {
+
+inline ArrayMeta parse_array_meta_impl(const json& j, const std::string& ctx, bool lenient) {
   if (!j.is_object()) {
     throw error(ctx + ": expected a JSON object");
   }
@@ -477,6 +481,13 @@ inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx, bool le
   return meta;
 }
 
+}  // namespace detail_v3
+
+/// Parses a v3 array zarr.json document into normalized ArrayMeta.
+inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx, bool lenient = false) {
+  return detail::guard_json(ctx, [&] { return detail_v3::parse_array_meta_impl(j, ctx, lenient); });
+}
+
 /// Result of parsing a v3 group zarr.json.
 struct GroupMeta {
   /// User attributes.
@@ -489,27 +500,29 @@ struct GroupMeta {
 
 /// Parses a v3 group zarr.json document.
 inline GroupMeta parse_group_meta(const json& j, const std::string& ctx, bool lenient = false) {
-  if (!j.is_object()) {
-    throw error(ctx + ": expected a JSON object");
-  }
-  if (detail::json_to_uint64(detail_v3::require(j, "zarr_format", ctx), ctx + ": zarr_format") !=
-      3) {
-    throw error(ctx + ": zarr_format must be 3");
-  }
-  if (detail_v3::require(j, "node_type", ctx) != "group") {
-    throw error(ctx + ": node_type must be 'group'");
-  }
-  detail_v3::check_members(j, {"zarr_format", "node_type", "attributes", "consolidated_metadata"},
-                           ctx, lenient);
+  return detail::guard_json(ctx, [&]() -> GroupMeta {
+    if (!j.is_object()) {
+      throw error(ctx + ": expected a JSON object");
+    }
+    if (detail::json_to_uint64(detail_v3::require(j, "zarr_format", ctx), ctx + ": zarr_format") !=
+        3) {
+      throw error(ctx + ": zarr_format must be 3");
+    }
+    if (detail_v3::require(j, "node_type", ctx) != "group") {
+      throw error(ctx + ": node_type must be 'group'");
+    }
+    detail_v3::check_members(j, {"zarr_format", "node_type", "attributes", "consolidated_metadata"},
+                             ctx, lenient);
 
-  GroupMeta meta;
-  meta.attributes = j.value("attributes", json::object());
-  const auto cons_it = j.find("consolidated_metadata");
-  if (cons_it != j.end() && cons_it->is_object() && cons_it->contains("metadata") &&
-      (*cons_it)["metadata"].is_object()) {
-    meta.consolidated = (*cons_it)["metadata"];
-  }
-  return meta;
+    GroupMeta meta;
+    meta.attributes = j.value("attributes", json::object());
+    const auto cons_it = j.find("consolidated_metadata");
+    if (cons_it != j.end() && cons_it->is_object() && cons_it->contains("metadata") &&
+        (*cons_it)["metadata"].is_object()) {
+      meta.consolidated = (*cons_it)["metadata"];
+    }
+    return meta;
+  });
 }
 
 /// v3 chunk key relative to the array (v3 core "chunk key encoding").

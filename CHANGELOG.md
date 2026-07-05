@@ -6,6 +6,13 @@ All notable changes to libzarr are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Error contract under fuzzing**: nlohmann exceptions could escape metadata parsing
+  (`out_of_range` on number overflow in `json::parse`, `type_error` from mis-typed
+  members) instead of `zarr::error`, and a throw during json initializer-list construction
+  leaked memory. Found by the first long fuzz run; all metadata entry points are now
+  guarded and regression-tested.
+
 ### Added
 - **Wild-fixture interop tests**: checked-in stores written by TensorStore (v2 gzip/blosc,
   v3 zstd, v3 sharded) and by omero-zarr (a pruned public IDR OME-Zarr image: 4-D uint16,

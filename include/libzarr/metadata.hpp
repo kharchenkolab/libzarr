@@ -143,6 +143,19 @@ inline Bytes canonical_json_bytes(const json& j) {
 
 namespace detail {
 
+/// Runs a metadata-parsing callable, converting any escaping nlohmann
+/// exception (type_error from mis-typed members, out_of_range, ...) into
+/// zarr::error: malformed input must never surface library-internal
+/// exception types.
+template <typename Fn>
+auto guard_json(const std::string& ctx, const Fn& fn) -> decltype(fn()) {
+  try {
+    return fn();
+  } catch (const json::exception& e) {
+    throw error(ctx + ": malformed metadata (" + e.what() + ")");
+  }
+}
+
 /// Reads a JSON value as uint64. Handles nlohmann's split integer storage:
 /// parsed non-negative literals are number_unsigned, programmatically
 /// constructed ints are number_integer.

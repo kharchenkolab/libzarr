@@ -637,3 +637,12 @@ TEST_CASE("v2 array with zarr-python 2's default blosc round-trips") {
   CHECK(doc.at("compressor").at("id") == "blosc");
 }
 #endif
+
+TEST_CASE("nlohmann exceptions never escape v3 parsing (fuzz 2026-07-05)") {
+  json j = minimal_v3_array();
+  j["codecs"] = json::array({{{"name", "bytes"}, {"configuration", "not-an-object"}}});
+  CHECK_THROWS_AS((void)zarr::v3::parse_array_meta(j, "test"), zarr::error);
+  j = minimal_v3_array();
+  j["chunk_key_encoding"] = {{"name", "default"}, {"configuration", 7}};
+  CHECK_THROWS_AS((void)zarr::v3::parse_array_meta(j, "test"), zarr::error);
+}

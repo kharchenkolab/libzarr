@@ -37,11 +37,13 @@ inline std::string meta_key(const std::string& path, const char* suffix) {
   return path.empty() ? suffix : path + "/" + suffix;
 }
 
-/// Parses bytes as JSON with a precise, contextual error.
+/// Parses bytes as JSON with a precise, contextual error. Catches every
+/// nlohmann exception class: the parser throws out_of_range (not just
+/// parse_error) for e.g. number overflow — found by fuzzing.
 inline json parse_json(const Bytes& bytes, const std::string& ctx) {
   try {
     return json::parse(bytes.begin(), bytes.end());
-  } catch (const json::parse_error& e) {
+  } catch (const json::exception& e) {
     throw error(ctx + ": " + e.what());
   }
 }
@@ -329,25 +331,29 @@ inline std::optional<CodecSpec> parse_compressor(const json& j, const std::strin
   if (id == "blosc") {
     // numcodecs Blosc: numeric shuffle (-1 = auto), no typesize member (the
     // dtype's itemsize applies). Values are validated at codec resolution.
-    return CodecSpec{"blosc",
-                     {{"cname", it->value("cname", "lz4")},
-                      {"clevel", it->value("clevel", std::int64_t{5})},
-                      {"shuffle", it->value("shuffle", std::int64_t{1})},
-                      {"blocksize", it->value("blocksize", std::int64_t{0})}}};
+    // Evaluated before the braced list: a .value() throw during json
+    // initializer-list construction leaks json_ref temporaries (fuzz+LSan).
+    const std::string cname = it->value("cname", "lz4");
+    const std::int64_t clevel = it->value("clevel", std::int64_t{5});
+    const json shuffle = it->value("shuffle", json(1));
+    const std::int64_t blocksize = it->value("blocksize", std::int64_t{0});
+    return CodecSpec{
+        "blosc",
+        {{"cname", cname}, {"clevel", clevel}, {"shuffle", shuffle}, {"blocksize", blocksize}}};
   }
   if (id == "zstd") {
     // numcodecs Zstd (zarr-python 3's default for v2-format arrays).
-    return CodecSpec{"zstd", {{"level", it->value("level", std::int64_t{0})}}};
+    const std::int64_t level = it->value("level", std::int64_t{0});
+    return CodecSpec{"zstd", {{"level", level}}};
   }
   throw error(ctx + ": unsupported v2 compressor '" + id + "'");
 }
 
 }  // namespace detail_v2
 
-/// Parses a .zarray document into normalized ArrayMeta (without attributes,
-/// which live in .zattrs). Unknown members are ignored: v2 predates v3's
-/// must-understand rule and extra keys are common in the wild.
-inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx) {
+namespace detail_v2 {
+
+inline ArrayMeta parse_array_meta_impl(const json& j, const std::string& ctx) {
   if (!j.is_object()) {
     throw error(ctx + ": expected a JSON object");
   }
@@ -400,7 +406,7 @@ inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx) {
     }
   }
 
-  meta.dimension_separator = detail_v2::parse_separator(j, ctx);
+  meta.dimension_separator = parse_separator(j, ctx);
 
   // Lowering into the normalized codec chain.
   if (order == "F" && meta.shape.size() >= 2) {
@@ -411,10 +417,19 @@ inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx) {
     meta.codecs.push_back({"transpose", {{"order", perm}}});
   }
   meta.codecs.push_back({"bytes", {{"endian", parsed.big_endian ? "big" : "little"}}});
-  if (auto compressor = detail_v2::parse_compressor(j, ctx)) {
+  if (auto compressor = parse_compressor(j, ctx)) {
     meta.codecs.push_back(*std::move(compressor));
   }
   return meta;
+}
+
+}  // namespace detail_v2
+
+/// Parses a .zarray document into normalized ArrayMeta (without attributes,
+/// which live in .zattrs). Unknown members are ignored: v2 predates v3's
+/// must-understand rule and extra keys are common in the wild.
+inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx) {
+  return detail::guard_json(ctx, [&] { return detail_v2::parse_array_meta_impl(j, ctx); });
 }
 
 /// Emits canonical .zarray JSON. Deterministic: sorted keys, stable forms;
@@ -483,10 +498,12 @@ inline json group_meta_json() { return json{{"zarr_format", 2}}; }
 
 /// Validates a .zgroup document.
 inline void check_group_meta(const json& j, const std::string& ctx) {
-  if (!j.is_object() || j.find("zarr_format") == j.end() ||
-      detail::json_to_uint64(j.at("zarr_format"), ctx) != 2) {
-    throw error(ctx + ": not a v2 group (zarr_format must be 2)");
-  }
+  detail::guard_json(ctx, [&] {
+    if (!j.is_object() || j.find("zarr_format") == j.end() ||
+        detail::json_to_uint64(j.at("zarr_format"), ctx) != 2) {
+      throw error(ctx + ": not a v2 group (zarr_format must be 2)");
+    }
+  });
 }
 
 /// v2 chunk key relative to the array: indices joined by the separator;
