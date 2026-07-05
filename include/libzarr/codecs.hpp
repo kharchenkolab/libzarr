@@ -164,6 +164,7 @@ class CodecPipeline {
       crc32c,
       blosc,
       zstd,
+      shuffle,  // v2 numcodecs shuffle filter
     };
     Kind kind = Kind::deflate;
     // deflate
@@ -178,6 +179,8 @@ class CodecPipeline {
     // zstd
     int zstd_level = 0;
     bool zstd_checksum = false;
+    // shuffle
+    std::uint32_t shuffle_elementsize = 1;
   };
 
   [[nodiscard]] static Bytes encode_stage(const ByteStage& stage, Bytes data) {
@@ -216,6 +219,8 @@ class CodecPipeline {
 #else
         throw error("codec requires zstd but LIBZARR_HAS_ZSTD is not defined");
 #endif
+      case ByteStage::Kind::shuffle:
+        return detail::shuffle_bytes(data, stage.shuffle_elementsize);
     }
     return data;  // unreachable
   }
@@ -256,6 +261,8 @@ class CodecPipeline {
 #else
         throw error("codec requires zstd but LIBZARR_HAS_ZSTD is not defined");
 #endif
+      case ByteStage::Kind::shuffle:
+        return detail::unshuffle_bytes(data, stage.shuffle_elementsize);
     }
     return data;  // unreachable
   }
@@ -334,6 +341,8 @@ class CodecPipeline {
       add_blosc(codec, meta);
     } else if (codec.name == "zstd") {
       add_zstd(codec);
+    } else if (codec.name == "shuffle") {
+      add_shuffle(codec, meta);
     } else if (codec.name == "sharding_indexed") {
       throw error(
           "codec 'sharding_indexed' is not supported yet (sharding arrives in a later "
@@ -380,6 +389,24 @@ class CodecPipeline {
         "codec 'zstd' is not built into this libzarr (compile with LIBZARR_HAS_ZSTD and link "
         "zstd)");
 #endif
+    byte_stages_.push_back(stage);
+  }
+
+  void add_shuffle(const CodecSpec& codec, const ArrayMeta& meta) {
+    ByteStage stage;
+    stage.kind = ByteStage::Kind::shuffle;
+    const json config = codec.configuration.is_object() ? codec.configuration : json::object();
+    const std::int64_t elementsize = config.value("elementsize", std::int64_t{0});
+    if (elementsize < 0 || elementsize > 0xFFFF) {
+      throw error("filter 'shuffle': invalid elementsize " + std::to_string(elementsize));
+    }
+    // NCZarr writes elementsize 0 for "the dtype's item size"; the actual
+    // stored bytes are shuffled with the item size.
+    stage.shuffle_elementsize =
+        elementsize == 0 ? meta.dtype.itemsize : static_cast<std::uint32_t>(elementsize);
+    if (stage.shuffle_elementsize == 0) {
+      throw error("filter 'shuffle': element size cannot be zero");
+    }
     byte_stages_.push_back(stage);
   }
 
@@ -446,6 +473,8 @@ class CodecPipeline {
       }
       if (byte_stages_[i].kind == ByteStage::Kind::crc32c) {
         size = *size + 4;
+      } else if (byte_stages_[i].kind == ByteStage::Kind::shuffle) {
+        // size-preserving
       } else {
         size = std::nullopt;  // compressed size is unknowable
       }

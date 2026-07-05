@@ -13,6 +13,19 @@ implementation), version 0.1.x, via the script in the repo history: v2 arrays wi
 blosc compressors, a v3 array with zstd, and a v3 sharded array with gzip inner chunks and
 a crc32c-checked index.
 
+## gdal/
+
+Written by GDAL 3.13.1's Zarr driver (`tests/wild/generate/gdal.py`): a v2 store (zlib) and
+a v3 store (gzip), both with nodata/fill and non-square blocks.
+
+## nczarr/
+
+Written by libnetcdf 4.9.3's NCZarr (`tests/wild/generate/nczarr.py`), in both pure-`zarr`
+and `nczarr` modes. These stores carry genuine quirks: numbers as JSON strings
+(`"level": "1"`, `"elementsize": "0"`) and shuffle filters — as of this writing zarr-python
+itself cannot read them (numcodecs crashes on the string elementsize), so their manifests
+are computed by netCDF4 (the writing library) inside the generator script.
+
 ## ome_zarr/
 
 A pruned subset of a real public OME-Zarr image: [IDR](https://idr.openmicroscopy.org)

@@ -344,6 +344,41 @@ inline char parse_separator(const json& j, const std::string& ctx) {
   return it->get<std::string>()[0];
 }
 
+/// Lowers the v2 filters member into bytes->bytes codec specs (applied
+/// before the compressor, per numcodecs). Only the shuffle filter is
+/// supported: netCDF's NCZarr writes it by default alongside zlib.
+inline std::vector<CodecSpec> parse_filters(const json& j, const std::string& ctx) {
+  std::vector<CodecSpec> out;
+  const auto it = j.find("filters");
+  if (it == j.end() || it->is_null()) {
+    return out;
+  }
+  // Tolerance: no-filters is canonically null, but [] appears in the wild.
+  if (!it->is_array()) {
+    throw error(ctx + ": 'filters' must be null or an array");
+  }
+  for (const json& f : *it) {
+    if (!f.is_object() || !f.contains("id") || !f["id"].is_string()) {
+      throw error(ctx + ": each filter must be an object with an 'id'");
+    }
+    const auto id = f["id"].get<std::string>();
+    if (id == "shuffle") {
+      // NCZarr 4.9.x writes elementsize "0" (a string, and zero) meaning
+      // "the dtype's item size"; the resolved size is filled in at codec
+      // resolution.
+      const std::int64_t elementsize = detail::lenient_int(f, "elementsize", 0, ctx);
+      out.push_back(CodecSpec{"shuffle", {{"elementsize", elementsize}}});
+    } else {
+      std::string msg = ctx;
+      msg += ": unsupported v2 filter '";
+      msg += id;
+      msg += "'";
+      throw error(msg);
+    }
+  }
+  return out;
+}
+
 /// Lowers the v2 compressor member into 0 or 1 bytes->bytes codec specs.
 inline std::optional<CodecSpec> parse_compressor(const json& j, const std::string& ctx) {
   const auto it = j.find("compressor");
@@ -356,7 +391,7 @@ inline std::optional<CodecSpec> parse_compressor(const json& j, const std::strin
   const auto id = (*it)["id"].get<std::string>();
   if (id == "zlib" || id == "gzip") {
     // numcodecs defaults level to 1 when absent.
-    const std::int64_t level = it->value("level", std::int64_t{1});
+    const std::int64_t level = detail::lenient_int(*it, "level", 1, ctx);
     if (level < 0 || level > 9) {
       throw error(ctx + ": compressor level must be in 0..9");
     }
@@ -368,16 +403,16 @@ inline std::optional<CodecSpec> parse_compressor(const json& j, const std::strin
     // Evaluated before the braced list: a .value() throw during json
     // initializer-list construction leaks json_ref temporaries (fuzz+LSan).
     const std::string cname = it->value("cname", "lz4");
-    const std::int64_t clevel = it->value("clevel", std::int64_t{5});
+    const std::int64_t clevel = detail::lenient_int(*it, "clevel", 5, ctx);
     const json shuffle = it->value("shuffle", json(1));
-    const std::int64_t blocksize = it->value("blocksize", std::int64_t{0});
+    const std::int64_t blocksize = detail::lenient_int(*it, "blocksize", 0, ctx);
     return CodecSpec{
         "blosc",
         {{"cname", cname}, {"clevel", clevel}, {"shuffle", shuffle}, {"blocksize", blocksize}}};
   }
   if (id == "zstd") {
     // numcodecs Zstd (zarr-python 3's default for v2-format arrays).
-    const std::int64_t level = it->value("level", std::int64_t{0});
+    const std::int64_t level = detail::lenient_int(*it, "level", 0, ctx);
     return CodecSpec{"zstd", {{"level", level}}};
   }
   throw error(ctx + ": unsupported v2 compressor '" + id + "'");
@@ -432,17 +467,10 @@ inline ArrayMeta parse_array_meta_impl(const json& j, const std::string& ctx) {
   const auto fill_it = j.find("fill_value");
   meta.fill = fill_it == j.end() ? std::nullopt : parse_fill(*fill_it, meta.dtype, ctx);
 
-  const auto filters_it = j.find("filters");
-  if (filters_it != j.end() && !filters_it->is_null()) {
-    // Tolerance: no-filters is canonically null, but [] appears in the wild.
-    if (!(filters_it->is_array() && filters_it->empty())) {
-      throw error(ctx + ": v2 filters are not supported");
-    }
-  }
-
   meta.dimension_separator = parse_separator(j, ctx);
 
-  // Lowering into the normalized codec chain.
+  // Lowering into the normalized codec chain: array->array, bytes, then
+  // filters (numcodecs applies them before the compressor), then compressor.
   if (order == "F" && meta.shape.size() >= 2) {
     json perm = json::array();
     for (std::size_t d = meta.shape.size(); d-- > 0;) {
@@ -451,10 +479,26 @@ inline ArrayMeta parse_array_meta_impl(const json& j, const std::string& ctx) {
     meta.codecs.push_back({"transpose", {{"order", perm}}});
   }
   meta.codecs.push_back({"bytes", {{"endian", parsed.big_endian ? "big" : "little"}}});
+  for (CodecSpec& filter : parse_filters(j, ctx)) {
+    meta.codecs.push_back(std::move(filter));
+  }
   if (auto compressor = parse_compressor(j, ctx)) {
     meta.codecs.push_back(*std::move(compressor));
   }
   return meta;
+}
+
+/// The canonical v2 filters member for a lowered codec chain.
+inline json emit_filters(const std::vector<CodecSpec>& codecs) {
+  json filters = json::array();
+  for (const CodecSpec& codec : codecs) {
+    if (codec.name == "shuffle") {
+      filters.push_back(
+          {{"id", "shuffle"},
+           {"elementsize", codec.configuration.value("elementsize", std::int64_t{0})}});
+    }
+  }
+  return filters.empty() ? json(nullptr) : filters;
 }
 
 }  // namespace detail_v2
@@ -473,7 +517,7 @@ inline json emit_array_meta(const ArrayMeta& meta) {
   j["zarr_format"] = 2;
   j["shape"] = meta.shape;
   j["chunks"] = meta.chunk_shape;
-  j["filters"] = nullptr;
+  j["filters"] = detail_v2::emit_filters(meta.codecs);
   j["fill_value"] = detail::fill_to_json(meta.fill, meta.dtype);
   if (meta.dimension_separator == '/') {
     j["dimension_separator"] = "/";
@@ -516,6 +560,8 @@ inline json emit_array_meta(const ArrayMeta& meta) {
     } else if (codec.name == "zstd") {
       j["compressor"] = {{"id", "zstd"},
                          {"level", codec.configuration.value("level", std::int64_t{0})}};
+    } else if (codec.name == "shuffle") {
+      // already emitted into the filters member
     } else {
       throw error("v2 cannot represent codec '" + codec.name + "'");
     }

@@ -660,6 +660,9 @@ namespace detail_v3 {
 inline json emit_codec_list(const std::vector<CodecSpec>& codecs) {
   json out = json::array();
   for (const CodecSpec& codec : codecs) {
+    if (codec.name == "shuffle") {
+      throw error("the v2 shuffle filter cannot be represented in v3 metadata");
+    }
     json c = {{"name", codec.name}};
     if (codec.configuration.is_object() && !codec.configuration.empty()) {
       c["configuration"] = codec.configuration;

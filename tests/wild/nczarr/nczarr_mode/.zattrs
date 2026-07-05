@@ -1,0 +1,1 @@
+{"_NCProperties": "version=2,netcdf=4.9.3,nczarr=2.0.0", "title": "libzarr wild fixture", "_nczarr_group": {"dimensions": {"y": 5, "x": 6}, "arrays": ["data","zipped"], "groups": []}, "_nczarr_superblock": {"version": "2.0.0"}, "_nczarr_attr": {"types": {"_NCProperties": ">S1", "title": ">S1", "_nczarr_group": "|J0", "_nczarr_superblock": "|J0", "_nczarr_attr": "|J0"}}}

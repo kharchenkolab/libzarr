@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <optional>
@@ -171,6 +172,31 @@ inline std::uint64_t json_to_uint64(const json& v, const std::string& ctx) {
     return static_cast<std::uint64_t>(i);
   }
   throw error(ctx + ": expected a non-negative integer, got " + v.dump());
+}
+
+/// Reads an optional integer member, tolerating numeric strings: NCZarr
+/// (libnetcdf 4.9.x) writes numbers like compressor levels and filter
+/// element sizes as JSON strings ("1", "0").
+inline std::int64_t lenient_int(const json& obj, const char* key, std::int64_t fallback,
+                                const std::string& ctx) {
+  const auto it = obj.find(key);
+  if (it == obj.end()) {
+    return fallback;
+  }
+  if (it->is_number_integer() || it->is_number_unsigned()) {
+    return it->get<std::int64_t>();
+  }
+  if (it->is_string()) {
+    const auto s = it->get<std::string>();
+    if (!s.empty()) {
+      char* end = nullptr;
+      const long long v = std::strtoll(s.c_str(), &end, 10);
+      if (end == s.c_str() + s.size()) {
+        return static_cast<std::int64_t>(v);
+      }
+    }
+  }
+  throw error(ctx + ": '" + key + "' must be an integer, got " + it->dump());
 }
 
 template <typename T>

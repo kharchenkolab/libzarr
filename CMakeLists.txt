@@ -123,8 +123,9 @@ if(LIBZARR_BUILD_TESTS)
   # omero-zarr), verified against zarr-python-computed manifests. They use
   # blosc/zstd/gzip, so all codec flags must be on.
   if(NOT EMSCRIPTEN AND LIBZARR_WITH_ZLIB AND LIBZARR_WITH_BLOSC AND LIBZARR_WITH_ZSTD)
-    foreach(wild tensorstore ome_zarr)
-      add_test(NAME wild_${wild}
+    foreach(wild tensorstore ome_zarr gdal nczarr/zarr_mode nczarr/nczarr_mode)
+      string(MAKE_C_IDENTIFIER ${wild} wild_id)
+      add_test(NAME wild_${wild_id}
         COMMAND conformance_tool verify-manifest ${CMAKE_CURRENT_SOURCE_DIR}/tests/wild/${wild})
     endforeach()
   endif()

@@ -41,11 +41,13 @@ against zarr-python by `tests/conformance/` in CI.
 | compressor: `zstd` (zarr-python 3.x default for v2 arrays) | full | full | unit:test_v2_metadata.cpp#zstd, conf:zstd_v2 | behind `LIBZARR_HAS_ZSTD` |
 | compressor: `blosc` (zarr-python 2.x default) | full | full (numeric shuffle form) | unit:test_v2_metadata.cpp#blosc, conf:blosc_default | behind `LIBZARR_HAS_BLOSC`; `-1` auto-shuffle tolerated |
 | other compressors | rejected | rejected | unit:test_v2_metadata.cpp#zarray-parsing | error names the id |
-| `filters` | rejected (`null`/`[]` = none) | emits `null` | unit:test_v2_metadata.cpp#filters | `[]` read as none: appears in the wild |
+| `filters`: `shuffle` (NCZarr's default alongside zlib) | full | full (numeric canonical form) | unit:test_codecs.cpp#shuffle, wild:nczarr | elementsize 0 = dtype item size |
+| `filters`: all others | rejected by name | emits `null` when none | unit:test_v2_metadata.cpp#filters | `[]` read as none: appears in the wild |
 | fill_value: numbers, bool, `"NaN"`/`"Infinity"`/`"-Infinity"`, base64 | full | full | unit:test_v2_metadata.cpp#fill-potholes, conf:f4_nanfill | NaN emitted as `"NaN"`; pinned quiet-NaN payloads |
 | fill_value: `null` | full | preserved | conf:i2_nullfill | reads as zeros (matches zarr-python) |
 | fill_value ≥ 2^63 for uint64 | full | full | unit:test_v2_metadata.cpp#fill-potholes, conf:u8_bigfill | must not squeeze through int64 |
 | fill tolerances: numeric strings (GDAL), 1-element array (NCZarr 4.8.0), `"+Infinity"`, missing member | read-only | never emitted | unit:test_v2_metadata.cpp#fill-potholes | each cites its origin in code |
+| compressor/filter numbers as JSON strings (`"level": "1"`, NCZarr 4.9.x) | read-only | never emitted | unit:test_v2_metadata.cpp#genuine-nczarr, wild:nczarr | verbatim genuine-output fixture |
 | `dimension_separator` `"."` / `"/"` | full | full | conf:u2_slashsep | `.` canonical; emitted only when `/` |
 | 0-d arrays (chunk key `"0"`) | full | full | unit:test_array.cpp#0-dimensional, conf:f8_0d | |
 | edge chunks (stored full-size, fill-padded); chunks > shape | full | full | unit:test_array.cpp#edge-chunks, conf:i8_bigchunk | |

@@ -7,6 +7,14 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **v2 shuffle filter** (NCZarr writes it by default next to zlib) and a read tolerance for
+  numeric metadata fields written as JSON strings (`"level": "1"`, `"elementsize": "0"` —
+  libnetcdf 4.9.x). With these, genuine NCZarr stores read bit-for-bit — including ones
+  current zarr-python cannot open.
+- **GDAL and NCZarr wild fixtures**: stores written by GDAL 3.13.1 (v2 zlib + v3 gzip) and
+  libnetcdf 4.9.3 (both NCZarr modes), verified against writer-computed manifests; the
+  GDAL/NCZarr tolerances are now tested against genuine output instead of synthetic
+  reproductions.
 - **v2 float16 and complex dtypes** (`<f2`, `<c8`, `<c16`), read and write — dtype parity
   with v3. Complex fills use zarr-python's `[re, im]` pair form; float16 non-finite string
   fills now encode to the correct 2-byte values.

@@ -384,3 +384,30 @@ TEST_CASE("v2 float16 and complex dtypes (parity with v3)") {
     CHECK(zarr::v2::parse_array_meta(emitted, "test").dtype == meta.dtype);
   }
 }
+
+TEST_CASE("genuine NCZarr output parses (libnetcdf 4.9.3 quirks)") {
+  // Verbatim from a store written by libnetcdf 4.9.3: numbers as JSON
+  // strings ("level": "1", "elementsize": "0") and a shuffle filter.
+  const std::string doc = R"({"zarr_format": 2, "shape": [5,6], "dtype": "<i4",
+    "chunks": [5,6], "fill_value": -2147483647, "order": "C",
+    "compressor": {"id": "zlib", "level": "1"},
+    "filters": [{"id": "shuffle", "elementsize": "0"}]})";
+  const auto meta = zarr::v2::parse_array_meta(
+      zarr::v2::parse_json(zarr::Bytes(doc.begin(), doc.end()), "t"), "t");
+  REQUIRE(meta.codecs.size() == 3);
+  CHECK(meta.codecs[1].name == "shuffle");
+  CHECK(meta.codecs[1].configuration.at("elementsize") == 0);
+  CHECK(meta.codecs[2].name == "zlib");
+  CHECK(meta.codecs[2].configuration.at("level") == 1);
+
+  // Canonical re-emission: numeric forms, filters member populated.
+  const auto emitted = zarr::v2::emit_array_meta(meta);
+  CHECK(emitted.at("filters") == json::array({{{"id", "shuffle"}, {"elementsize", 0}}}));
+  CHECK(emitted.at("compressor").at("level") == 1);
+  CHECK(zarr::v2::parse_array_meta(emitted, "t").codecs.size() == 3);
+
+  // Unsupported filters still fail by name.
+  json bad = minimal_zarray();
+  bad["filters"] = json::array({{{"id", "delta"}}});
+  CHECK_THROWS_AS((void)zarr::v2::parse_array_meta(bad, "t"), zarr::error);
+}

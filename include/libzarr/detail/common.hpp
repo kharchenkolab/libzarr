@@ -155,6 +155,36 @@ inline double half_bits_to_double(std::uint16_t half) {
   return static_cast<double>(f);
 }
 
+/// numcodecs-style byte shuffle: element bytes are regrouped by byte
+/// position (out[j*count + i] = in[i*es + j]); trailing bytes that do not
+/// fill an element are copied unchanged. Its own inverse is unshuffle_bytes.
+inline Bytes shuffle_bytes(const Bytes& src, std::uint32_t elementsize) {
+  Bytes out(src.size());
+  const std::size_t count = src.size() / elementsize;
+  for (std::size_t i = 0; i < count; ++i) {
+    for (std::size_t j = 0; j < elementsize; ++j) {
+      out[j * count + i] = src[i * elementsize + j];
+    }
+  }
+  std::memcpy(out.data() + count * elementsize, src.data() + count * elementsize,
+              src.size() - count * elementsize);
+  return out;
+}
+
+/// Inverse of shuffle_bytes.
+inline Bytes unshuffle_bytes(const Bytes& src, std::uint32_t elementsize) {
+  Bytes out(src.size());
+  const std::size_t count = src.size() / elementsize;
+  for (std::size_t i = 0; i < count; ++i) {
+    for (std::size_t j = 0; j < elementsize; ++j) {
+      out[i * elementsize + j] = src[j * count + i];
+    }
+  }
+  std::memcpy(out.data() + count * elementsize, src.data() + count * elementsize,
+              src.size() - count * elementsize);
+  return out;
+}
+
 // ---- base64 (RFC 4648, with padding) — v2 fill_value for raw dtypes -------
 
 inline std::string base64_encode(const std::uint8_t* data, std::size_t size) {

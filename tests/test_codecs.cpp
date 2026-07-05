@@ -185,3 +185,46 @@ TEST_CASE("gzip without zlib fails at resolve with a clear error") {
       zarr::error);
 }
 #endif
+
+TEST_CASE("shuffle filter (NCZarr's default alongside zlib)") {
+  zarr::ArrayMeta meta;
+  meta.shape = {8};
+  meta.chunk_shape = {8};
+  meta.dtype = DataType::of(DType::int32);
+  meta.codecs = {{"bytes", {}}, {"shuffle", {{"elementsize", 0}}}};  // 0 = dtype size
+  const auto pipeline = CodecPipeline::resolve(meta);
+
+  Bytes chunk(32);
+  for (std::size_t i = 0; i < chunk.size(); ++i) {
+    chunk[i] = static_cast<std::uint8_t>(i);
+  }
+  const Bytes stored = pipeline.encode(chunk);
+  CHECK(stored != chunk);
+  // byte 0 of each element first, then byte 1, ...
+  CHECK(stored[0] == 0);
+  CHECK(stored[1] == 4);
+  CHECK(stored[8] == 1);
+  CHECK(pipeline.decode(stored) == chunk);
+  CHECK_FALSE(pipeline.supports_partial_read());
+
+  // Explicit element size with a trailing remainder is preserved.
+  const Bytes odd{1, 2, 3, 4, 5, 6, 7};
+  CHECK(zarr::detail::unshuffle_bytes(zarr::detail::shuffle_bytes(odd, 3), 3) == odd);
+}
+
+#ifdef LIBZARR_HAS_ZLIB
+TEST_CASE("shuffle + zlib chain matches numcodecs ordering") {
+  // Encode order per numcodecs: filters first, then the compressor.
+  zarr::ArrayMeta meta;
+  meta.shape = {30};
+  meta.chunk_shape = {30};
+  meta.dtype = DataType::of(DType::int32);
+  meta.codecs = {{"bytes", {}}, {"shuffle", {{"elementsize", 0}}}, {"zlib", {{"level", 1}}}};
+  const auto pipeline = CodecPipeline::resolve(meta);
+  Bytes chunk(120);
+  for (std::size_t i = 0; i < chunk.size(); ++i) {
+    chunk[i] = static_cast<std::uint8_t>((i * 7) % 251);
+  }
+  CHECK(pipeline.decode(pipeline.encode(chunk)) == chunk);
+}
+#endif

@@ -1,0 +1,14 @@
+{
+  "arrays": {
+    "data": {
+      "crc32c": "b113fb34",
+      "dtype": "float32",
+      "nbytes": 120
+    },
+    "zipped": {
+      "crc32c": "382de012",
+      "dtype": "int32",
+      "nbytes": 120
+    }
+  }
+}
