@@ -274,51 +274,57 @@ inline std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::st
 
 namespace detail_v3 {
 
-/// Lowers the v3 codecs member into CodecSpec form, applying documented
-/// read-tolerances for pre-final spellings.
+/// Normalizes one codecs-list entry, applying documented read-tolerances
+/// for pre-final spellings.
+inline CodecSpec parse_codec_entry(const json& c, std::size_t rank, const std::string& ctx) {
+  CodecSpec spec;
+  if (c.is_string()) {
+    // Pre-final v3 writers emitted bare codec-name strings (read tolerance).
+    spec.name = c.get<std::string>();
+  } else if (c.is_object() && c.contains("name") && c["name"].is_string()) {
+    spec.name = c["name"].get<std::string>();
+    spec.configuration = c.value("configuration", json::object());
+    if (!spec.configuration.is_object()) {
+      throw error(ctx + ": codec '" + spec.name + "' configuration must be an object");
+    }
+  } else {
+    throw error(ctx + ": each codec must be an object with a 'name'");
+  }
+  if (spec.name == "endian") {
+    // zarr-python 2.x's experimental v3 wrote "endian" for what the final
+    // spec names "bytes" (read tolerance).
+    spec.name = "bytes";
+  }
+  if (spec.name == "transpose" && spec.configuration.value("order", json()).is_string()) {
+    // 2022-draft transpose configs used "C"/"F" strings; the final spec
+    // requires an explicit permutation (read tolerance).
+    const auto order = spec.configuration["order"].get<std::string>();
+    if (order != "C" && order != "F") {
+      std::string msg = ctx;
+      msg += ": transpose order '";
+      msg += order;
+      msg += R"(' is not "C", "F" or an array)";
+      throw error(msg);
+    }
+    json perm = json::array();
+    for (std::size_t d = 0; d < rank; ++d) {
+      perm.push_back(order == "F" ? rank - 1 - d : d);
+    }
+    spec.configuration["order"] = perm;
+  }
+  return spec;
+}
+
+/// Lowers the v3 codecs member into CodecSpec form.
 inline std::vector<CodecSpec> parse_codecs(const json& v, std::size_t rank,
                                            const std::string& ctx) {
   if (!v.is_array()) {
     throw error(ctx + ": 'codecs' must be an array");
   }
   std::vector<CodecSpec> out;
+  out.reserve(v.size());
   for (const json& c : v) {
-    CodecSpec spec;
-    if (c.is_string()) {
-      // Pre-final v3 writers emitted bare codec-name strings (read tolerance).
-      spec.name = c.get<std::string>();
-    } else if (c.is_object() && c.contains("name") && c["name"].is_string()) {
-      spec.name = c["name"].get<std::string>();
-      spec.configuration = c.value("configuration", json::object());
-      if (!spec.configuration.is_object()) {
-        throw error(ctx + ": codec '" + spec.name + "' configuration must be an object");
-      }
-    } else {
-      throw error(ctx + ": each codec must be an object with a 'name'");
-    }
-    if (spec.name == "endian") {
-      // zarr-python 2.x's experimental v3 wrote "endian" for what the final
-      // spec names "bytes" (read tolerance).
-      spec.name = "bytes";
-    }
-    if (spec.name == "transpose" && spec.configuration.value("order", json()).is_string()) {
-      // 2022-draft transpose configs used "C"/"F" strings; the final spec
-      // requires an explicit permutation (read tolerance).
-      const auto order = spec.configuration["order"].get<std::string>();
-      if (order != "C" && order != "F") {
-        std::string msg = ctx;
-        msg += ": transpose order '";
-        msg += order;
-        msg += R"(' is not "C", "F" or an array)";
-        throw error(msg);
-      }
-      json perm = json::array();
-      for (std::size_t d = 0; d < rank; ++d) {
-        perm.push_back(order == "F" ? rank - 1 - d : d);
-      }
-      spec.configuration["order"] = perm;
-    }
-    out.push_back(std::move(spec));
+    out.push_back(parse_codec_entry(c, rank, ctx));
   }
   return out;
 }
