@@ -2,9 +2,20 @@ name: pages
 
 # Publishes the Doxygen API documentation to GitHub Pages. The CI `docs` job
 # already gates that the docs build warning-free; this deploys the HTML.
+#
+# Runs only when the published content can change (headers, markdown docs,
+# Doxyfile). GitHub Pages permits one deployment at a time, so limiting the
+# trigger keeps back-to-back pushes from queuing colliding deploys; unrelated
+# code/test/CI commits don't redeploy the site.
 on:
   push:
     branches: [main]
+    paths:
+      - 'include/**'
+      - '**/*.md'
+      - 'docs/**'
+      - 'Doxyfile'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
