@@ -24,8 +24,15 @@ option(LIBZARR_WITH_BLOSC "Enable the blosc codec (requires c-blosc)" OFF)
 option(LIBZARR_WITH_ZSTD "Enable the zstd codec (requires libzstd)" OFF)
 
 if(LIBZARR_WITH_ZLIB)
-  find_package(ZLIB REQUIRED)
-  target_link_libraries(libzarr INTERFACE ZLIB::ZLIB)
+  if(EMSCRIPTEN)
+    # Emscripten ships zlib as a port, activated by a flag rather than
+    # find_package; it must be on both the compile and link lines.
+    target_compile_options(libzarr INTERFACE "-sUSE_ZLIB=1")
+    target_link_options(libzarr INTERFACE "-sUSE_ZLIB=1")
+  else()
+    find_package(ZLIB REQUIRED)
+    target_link_libraries(libzarr INTERFACE ZLIB::ZLIB)
+  endif()
   target_compile_definitions(libzarr INTERFACE LIBZARR_HAS_ZLIB=1)
 endif()
 if(LIBZARR_WITH_BLOSC)

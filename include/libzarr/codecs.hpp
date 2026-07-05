@@ -343,11 +343,9 @@ class CodecPipeline {
       add_zstd(codec);
     } else if (codec.name == "shuffle") {
       add_shuffle(codec, meta);
-    } else if (codec.name == "sharding_indexed") {
-      throw error(
-          "codec 'sharding_indexed' is not supported yet (sharding arrives in a later "
-          "phase)");
     } else {
+      // sharding_indexed never reaches here: resolve()'s dispatch intercepts
+      // it (it is lowered into shard levels at parse time, not resolved).
       throw error("unknown codec '" + codec.name + "'");
     }
   }

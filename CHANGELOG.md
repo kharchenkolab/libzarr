@@ -34,6 +34,11 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **WASM builds can now enable codecs**: `LIBZARR_WITH_ZLIB` wires Emscripten's zlib port
+  (`-sUSE_ZLIB`), so the WASM + gzip configuration real browser consumers use is buildable —
+  and a new `emscripten-zlib` CI job guards it (the zero-dep `emscripten` job still guards
+  the minimal core). Documented the deliberately-synchronous Store contract and its
+  async-fetch bridges (Asyncify / worker + SharedArrayBuffer) in docs/DESIGN.md.
 - **Hardware-accelerated CRC-32C**: `detail::crc32c` now dispatches at run time to the SSE4.2
   CRC instruction on x86 (GCC/Clang), ~4.5–5.6× the portable table it replaces (crc32c codec
   throughput 325→1435 MiB/s write, 357→2018 read). Falls back to the table on non-x86, MSVC,

@@ -11,6 +11,25 @@ index can be fetched in one round-trip without knowing the object size — the s
 HTTP `Range: bytes=-n` request. `std::filesystem` lives only in
 `adapters/filesystem_store.hpp`; WASM builds omit it and the core compiles unchanged.
 
+**The Store interface is deliberately synchronous.** `read`/`read_range`/`write` return
+their result directly, not a future. This is what keeps the core single-threaded and
+WASM-clean — no event loop, no coroutine runtime, no threading assumptions baked into the
+format logic — and it is why the whole library embeds cleanly into a host that owns its own
+concurrency. The cost lands on consumers whose real I/O is asynchronous (a browser's
+`fetch`): they must bridge async-to-sync at the Store boundary. Two standard bridges:
+
+- **Emscripten Asyncify** — compile with `-sASYNCIFY`; a synchronous `read` inside the Store
+  can then suspend the WASM stack while a JS `await fetch(...)` runs. Simplest; adds some
+  code size and per-call overhead.
+- **Worker + `SharedArrayBuffer`** — run libzarr on a Web Worker and satisfy each blocking
+  Store call by posting the request to the main thread and blocking on `Atomics.wait` over a
+  shared buffer until the fetch resolves. More moving parts, no Asyncify overhead, and it
+  keeps the UI thread free.
+
+Batching (`Store::read_many`) composes with either: the Store still blocks, but it can issue
+the whole set of ranges concurrently (or coalesced) before returning, cutting round-trips
+without changing the synchronous contract.
+
 ## Codec pipeline
 
 Codec chains are resolved once per array into an executable plan (`CodecPipeline`),

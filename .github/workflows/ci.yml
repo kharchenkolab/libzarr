@@ -134,3 +134,15 @@ jobs:
       - run: emcmake cmake -S . -B em-build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build em-build -j
       - run: ctest --test-dir em-build --output-on-failure
+
+  # The config real WASM consumers use: Emscripten + gzip (zlib via the
+  # -sUSE_ZLIB port). Guards the WASM+codec path against silent regression;
+  # the zero-dep `emscripten` job above still guards the minimal core.
+  emscripten-zlib:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+      - run: emcmake cmake -S . -B em-build -DCMAKE_BUILD_TYPE=Release -DLIBZARR_WITH_ZLIB=ON
+      - run: cmake --build em-build -j
+      - run: ctest --test-dir em-build --output-on-failure
