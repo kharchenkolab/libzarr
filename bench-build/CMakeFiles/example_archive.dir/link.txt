@@ -1,0 +1,1 @@
+/bin/c++  -O3 -DNDEBUG   CMakeFiles/example_archive.dir/examples/archive.cpp.o  -o example_archive  /usr/lib/x86_64-linux-gnu/libz.so /home/pkharchenko/opt/blosc/lib/libblosc.a -lpthread /usr/lib/x86_64-linux-gnu/libzstd.so 

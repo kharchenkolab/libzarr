@@ -112,6 +112,13 @@ if(LIBZARR_BUILD_TESTS)
     endif()
   endif()
 
+  # Throughput baseline; build Release and run manually (never a ctest —
+  # timing-sensitive, and meaningless under sanitizers).
+  if(NOT EMSCRIPTEN)
+    add_executable(libzarr_bench bench/bench.cpp)
+    target_link_libraries(libzarr_bench PRIVATE libzarr::libzarr libzarr_dev_flags)
+  endif()
+
   # Wild fixtures: stores written by foreign implementations (TensorStore,
   # omero-zarr), verified against zarr-python-computed manifests. They use
   # blosc/zstd/gzip, so all codec flags must be on.

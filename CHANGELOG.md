@@ -14,6 +14,9 @@ All notable changes to libzarr are documented here. The format follows
   guarded and regression-tested.
 
 ### Added
+- **Performance baseline**: `bench/bench.cpp` (Release, manual) measures whole-array
+  write/read throughput across codec and sharding combos; numbers recorded in
+  docs/DESIGN.md.
 - **Wild-fixture interop tests**: checked-in stores written by TensorStore (v2 gzip/blosc,
   v3 zstd, v3 sharded) and by omero-zarr (a pruned public IDR OME-Zarr image: 4-D uint16,
   blosc, `/` separator) are verified bit-for-bit against zarr-python-computed manifests

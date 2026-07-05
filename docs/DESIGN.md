@@ -61,6 +61,33 @@ requires a fixed-size encoded index. Codecs wrapped *around* a shard (outer tran
 whole-shard compression) are rejected on read and write: byte ranges into the shard must map
 1:1 onto stored bytes, which is the entire point of the format.
 
+## Performance baseline
+
+`bench/bench.cpp` (build Release, run manually), 64 MiB float32 array, chunks 256×256,
+shards 1024×1024 where sharded, single-threaded over a MemoryStore. Measured 2026-07-05 at
+v0.2.0 on a Xeon E5-2697 v3 @ 2.60 GHz (zlib 1.2.11, libzstd 1.4.4, c-blosc 1.21.6):
+
+| case           | write MiB/s | read MiB/s | stored/raw |
+|----------------|------------:|-----------:|-----------:|
+| raw            |        2695 |       2479 |       1.00 |
+| crc32c         |         325 |        357 |       1.00 |
+| gzip-1         |          40 |        155 |       0.69 |
+| gzip-5         |          19 |        157 |       0.65 |
+| zstd-0         |          72 |        463 |       0.64 |
+| blosc-lz4      |         923 |       1350 |       0.60 |
+| sharded raw    |         502 |        614 |       1.00 |
+| sharded zstd-0 |          69 |        338 |       0.64 |
+
+Reading of the numbers: raw is memcpy-bound; compressed cases are codec-bound (the
+uncompressed `raw` row is the pipeline-overhead ceiling). The sharded-raw gap vs raw
+(~5× write, ~4× read) quantifies the two costs already documented above: the
+C-order write path reassembles each shard once per row of inner chunks (4× here), and
+each inner-chunk access pays key formatting/parsing plus an index lookup. With a real
+compressor attached the gap disappears into codec cost (zstd-0 sharded ≈ unsharded).
+Worthwhile future optimizations, in impact order: hardware CRC-32C (SSE4.2 gives ~8×
+on the crc32c row and shard indices), shard-major write ordering, and cheaper chunk-key
+handling in `ShardStore::locate`.
+
 ## Consolidated metadata
 
 v2 `.zmetadata` is read through automatically at root opens and kept in sync by every

@@ -1,0 +1,1 @@
+/bin/c++  -O3 -DNDEBUG   CMakeFiles/libzarr_bench.dir/bench/bench.cpp.o  -o libzarr_bench  /usr/lib/x86_64-linux-gnu/libz.so /home/pkharchenko/opt/blosc/lib/libblosc.a -lpthread /usr/lib/x86_64-linux-gnu/libzstd.so 

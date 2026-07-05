@@ -1,0 +1,5 @@
+# Benchmarks print aligned numeric tables; printf-style formatting is the
+# clearest tool for that and the harness is not library code.
+InheritParentConfig: true
+Checks: >
+  -cppcoreguidelines-pro-type-vararg
