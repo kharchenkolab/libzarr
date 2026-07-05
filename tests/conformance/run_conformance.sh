@@ -16,4 +16,10 @@ mkdir -p "$WORK"
 "$TOOL" write "$WORK/from_libzarr"
 "$PYTHON" "$HERE/read_back.py" "$WORK/from_libzarr"
 
-echo "conformance OK (both directions)"
+"$PYTHON" "$HERE/write_zip_fixture.py" "$WORK/from_python.zip"
+"$TOOL" read-zip "$WORK/from_python.zip"
+
+"$TOOL" write-zip "$WORK/from_libzarr.zip"
+PYTHONPATH="$HERE" "$PYTHON" "$HERE/read_zip.py" "$WORK/from_libzarr.zip"
+
+echo "conformance OK (both directions, directory and zip)"

@@ -70,7 +70,8 @@ if(LIBZARR_BUILD_TESTS)
     tests/test_array.cpp
     tests/test_codecs.cpp
     tests/test_store.cpp
-    tests/test_v2_metadata.cpp)
+    tests/test_v2_metadata.cpp
+    tests/test_zip.cpp)
   if(NOT EMSCRIPTEN)
     # The filesystem adapter is exactly what WASM builds omit.
     target_sources(libzarr_tests PRIVATE tests/test_fs_store.cpp)

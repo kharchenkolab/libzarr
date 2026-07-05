@@ -89,6 +89,17 @@ class Store {
   /// range reads (files, HTTP) should override.
   [[nodiscard]] virtual std::optional<Bytes> read_range(std::string_view key, ByteRange range);
 
+  /// Size in bytes of the value at `key`, or std::nullopt if absent. The
+  /// default implementation reads the whole value; backends with cheap stat
+  /// (files: fstat, HTTP: HEAD) should override.
+  [[nodiscard]] virtual std::optional<std::uint64_t> size(std::string_view key) {
+    const auto value = read(key);
+    if (!value) {
+      return std::nullopt;
+    }
+    return value->size();
+  }
+
   /// Create or replace the value at `key`.
   virtual void write(std::string_view key, Bytes value) = 0;
 
@@ -119,6 +130,14 @@ class MemoryStore final : public Store {
 
   void write(std::string_view key, Bytes value) override {
     map_.insert_or_assign(std::string(key), std::move(value));
+  }
+
+  [[nodiscard]] std::optional<std::uint64_t> size(std::string_view key) override {
+    const auto it = map_.find(key);
+    if (it == map_.end()) {
+      return std::nullopt;
+    }
+    return it->second.size();
   }
 
   [[nodiscard]] bool exists(std::string_view key) override { return map_.find(key) != map_.end(); }

@@ -7,6 +7,10 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Single-file ZIP archives** (STORED entries only, ZIP64-aware): `zarr::ZipReader` — a
+  read-only Store view over an archive in any other Store, all access through byte-range
+  reads — and `zarr::zip_pack` (deterministic byte-for-byte). Conformance-tested against
+  zarr-python's ZipStore in both directions. `Store::size()` added alongside.
 - **Zarr v2 read/write**: arrays and groups (`zarr::Array`, `zarr::Group`), whole-array and
   per-chunk I/O with fill-padded edge chunks, byte-range sub-chunk reads on uncompressed
   layouts, attributes, nested hierarchy creation, 0-d arrays, both dimension separators.

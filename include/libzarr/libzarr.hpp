@@ -15,5 +15,6 @@
 #include "libzarr/store.hpp"
 #include "libzarr/types.hpp"
 #include "libzarr/v2.hpp"
+#include "libzarr/zip.hpp"
 
 #endif  // LIBZARR_LIBZARR_HPP

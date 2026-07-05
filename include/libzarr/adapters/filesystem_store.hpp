@@ -103,6 +103,15 @@ class FilesystemStore final : public Store {
     }
   }
 
+  [[nodiscard]] std::optional<std::uint64_t> size(std::string_view key) override {
+    std::error_code ec;
+    const auto bytes = std::filesystem::file_size(key_path(key), ec);
+    if (ec) {
+      return std::nullopt;
+    }
+    return bytes;
+  }
+
   [[nodiscard]] bool exists(std::string_view key) override {
     return std::filesystem::is_regular_file(key_path(key));
   }

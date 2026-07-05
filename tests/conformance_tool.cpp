@@ -7,9 +7,11 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -120,8 +122,7 @@ void verify_array(const zarr::Array& array, const std::string& name) {
   }
 }
 
-int do_read(const std::string& dir) {
-  auto store = std::make_shared<zarr::FilesystemStore>(dir, /*create=*/false);
+int verify_store(const std::shared_ptr<zarr::Store>& store, const std::string& what) {
   int count = 0;
   for (const std::string& key : store->list_prefix("")) {
     const std::string suffix = "/.zarray";
@@ -134,14 +135,13 @@ int do_read(const std::string& dir) {
     ++count;
   }
   if (count == 0) {
-    throw zarr::error("no arrays found in " + dir);
+    throw zarr::error("no arrays found in " + what);
   }
-  std::cout << "verified " << count << " fixture arrays\n";
+  std::cout << "verified " << count << " fixture arrays in " << what << "\n";
   return 0;
 }
 
-int do_write(const std::string& dir) {
-  auto store = std::make_shared<zarr::FilesystemStore>(dir);
+int build_fixtures(const std::shared_ptr<zarr::Store>& store) {
   auto root = zarr::Group::create(store);
   int count = 0;
 
@@ -262,15 +262,46 @@ int do_write(const std::string& dir) {
   return 0;
 }
 
+// A zip file addressed as (parent directory store, file name).
+std::pair<std::shared_ptr<zarr::FilesystemStore>, std::string> split_zip_path(
+    const std::string& file) {
+  const std::filesystem::path path(file);
+  auto dir = std::make_shared<zarr::FilesystemStore>(path.parent_path());
+  return {std::move(dir), path.filename().generic_string()};
+}
+
+int dispatch(const std::string& mode, const std::string& target) {
+  if (mode == "read") {
+    return verify_store(std::make_shared<zarr::FilesystemStore>(target, /*create=*/false), target);
+  }
+  if (mode == "write") {
+    return build_fixtures(std::make_shared<zarr::FilesystemStore>(target));
+  }
+  if (mode == "read-zip") {
+    auto [dir, name] = split_zip_path(target);
+    return verify_store(std::make_shared<zarr::ZipReader>(std::move(dir), name), target);
+  }
+  if (mode == "write-zip") {
+    auto staging = std::make_shared<zarr::MemoryStore>();
+    build_fixtures(staging);
+    auto [dir, name] = split_zip_path(target);
+    zarr::zip_pack(*staging, *dir, name);
+    std::cout << "packed into " << target << "\n";
+    return 0;
+  }
+  std::cerr << "usage: conformance_tool read|write <dir> | read-zip|write-zip <file.zip>\n";
+  return 2;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   if (argc != 3) {
-    std::cerr << "usage: conformance_tool read|write <dir>\n";
+    std::cerr << "usage: conformance_tool read|write <dir> | read-zip|write-zip <file.zip>\n";
     return 2;
   }
   try {
-    return std::string(argv[1]) == "read" ? do_read(argv[2]) : do_write(argv[2]);
+    return dispatch(argv[1], argv[2]);
   } catch (const std::exception& e) {
     std::cerr << e.what() << "\n";
     return 1;

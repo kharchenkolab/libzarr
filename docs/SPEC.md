@@ -52,6 +52,15 @@ against zarr-python by `tests/conformance/` in CI.
 | byte-range sub-chunk read | full (uncompressed, untransposed layouts) | n/a | unit:test_array.cpp#byte-range-sub-chunk-reads | via `Store::read_range` |
 | nested hierarchy create writes intermediate `.zgroup`s | n/a | full | unit:test_array.cpp#groups | known interop hazard otherwise |
 
+## Single-file archives (ZIP)
+
+| Feature | READ | WRITE | Tests | Notes |
+|---|---|---|---|---|
+| STORED-entry ZIP as a Store (`ZipReader` / `zip_pack`) | full | full | unit:test_zip.cpp, conf:zip both directions vs zarr-python ZipStore | all access via `read_range`; entries stay byte-range-readable |
+| ZIP64 | full | full (automatic; `force_zip64` for tests) | unit:test_zip.cpp#zip64 | |
+| compressed (non-STORED) entries | rejected | rejected | unit:test_zip.cpp#compressed-entries | scope guard: ranges must map 1:1 to archive bytes |
+| multi-disk archives, encryption | rejected | rejected | unit:test_zip.cpp | |
+
 ## Zarr v3
 
 | Feature | READ | WRITE | Tests | Notes |
