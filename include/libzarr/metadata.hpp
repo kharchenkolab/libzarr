@@ -1,0 +1,279 @@
+// SPDX-License-Identifier: MIT
+
+#ifndef LIBZARR_METADATA_HPP
+#define LIBZARR_METADATA_HPP
+
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <nlohmann/json.hpp>
+
+#include "libzarr/detail/common.hpp"
+#include "libzarr/types.hpp"
+
+/// \file metadata.hpp
+/// The normalized, version-independent array metadata (ArrayMeta) plus codec
+/// descriptors and fill-value encoding. Version-specific parse/emit lives in
+/// v2.hpp / v3.hpp, which lower into these types.
+
+namespace zarr {
+
+/// JSON type used throughout libzarr (vendored nlohmann/json by default;
+/// see LIBZARR_EXTERNAL_JSON). Objects keep keys sorted, which makes every
+/// serialization deterministic.
+using json = nlohmann::json;
+
+/// One codec in a chain, in v3 nomenclature: a name plus a JSON configuration.
+/// v2 metadata is lowered into this form on read (compressor -> one
+/// bytes->bytes codec; order:"F" -> a transpose codec; dtype byte order ->
+/// the "bytes" codec's endian).
+struct CodecSpec {
+  /// Codec name ("transpose", "bytes", "gzip", "zlib", ...).
+  std::string name;
+  /// Codec-specific configuration.
+  json configuration = json::object();
+};
+
+/// Convenience factory: gzip (RFC 1952) at `level` (0-9).
+inline CodecSpec gzip(int level = 5) { return {"gzip", {{"level", level}}}; }
+
+/// Convenience factory: zlib (RFC 1950) at `level` (0-9). Zarr v2 only.
+inline CodecSpec zlib(int level = 5) { return {"zlib", {{"level", level}}}; }
+
+/// Normalized array metadata, shared by every format version. Version quirks
+/// are resolved at parse time; everything downstream (codecs, chunk I/O)
+/// consumes only this.
+struct ArrayMeta {
+  /// Format this array was read from / will be written as.
+  ZarrFormat format = ZarrFormat::v2;
+  /// Array shape; empty = 0-dimensional.
+  std::vector<std::uint64_t> shape;
+  /// Chunk shape, same rank as `shape`; chunks may exceed the array extent.
+  std::vector<std::uint64_t> chunk_shape;
+  /// Element type.
+  DataType dtype;
+  /// Fill value as one element in native byte order; std::nullopt when the
+  /// source metadata had fill_value:null (legal in v2), which reads as zeros.
+  std::optional<Bytes> fill;
+  /// v2 chunk-key separator ('.' or '/').
+  char dimension_separator = '.';
+  /// Codec chain in v3 order: array->array*, one array->bytes ("bytes"),
+  /// then bytes->bytes*.
+  std::vector<CodecSpec> codecs;
+  /// User attributes (v2 .zattrs / v3 attributes).
+  json attributes = json::object();
+
+  /// Number of elements in the whole array (1 for rank 0).
+  [[nodiscard]] std::uint64_t element_count() const {
+    return detail::checked_product(shape, "array shape");
+  }
+  /// Number of elements in one (full) chunk (1 for rank 0).
+  [[nodiscard]] std::uint64_t chunk_element_count() const {
+    return detail::checked_product(chunk_shape, "chunk shape");
+  }
+  /// Chunk-grid extent per dimension.
+  [[nodiscard]] std::vector<std::uint64_t> grid_shape() const {
+    std::vector<std::uint64_t> grid(shape.size());
+    for (std::size_t d = 0; d < shape.size(); ++d) {
+      grid[d] = detail::ceil_div(shape[d], chunk_shape[d]);
+    }
+    return grid;
+  }
+};
+
+/// Serializes JSON in libzarr's canonical form: 4-space indent, sorted keys
+/// (nlohmann's storage order), UTF-8. Byte-stable across platforms.
+inline Bytes canonical_json_bytes(const json& j) {
+  const std::string text = j.dump(4);
+  return {text.begin(), text.end()};
+}
+
+namespace detail {
+
+/// Reads a JSON value as uint64. Handles nlohmann's split integer storage:
+/// parsed non-negative literals are number_unsigned, programmatically
+/// constructed ints are number_integer.
+inline std::uint64_t json_to_uint64(const json& v, const std::string& ctx) {
+  if (v.is_number_unsigned()) {
+    return v.get<std::uint64_t>();
+  }
+  if (v.is_number_integer()) {
+    const auto i = v.get<std::int64_t>();
+    if (i < 0) {
+      throw error(ctx + ": expected a non-negative integer, got " + std::to_string(i));
+    }
+    return static_cast<std::uint64_t>(i);
+  }
+  throw error(ctx + ": expected a non-negative integer, got " + v.dump());
+}
+
+template <typename T>
+Bytes scalar_bytes(T value) {
+  Bytes out(sizeof(T));
+  std::memcpy(out.data(), &value, sizeof(T));
+  return out;
+}
+
+/// Pinned quiet-NaN bit patterns: the specs' "NaN" form carries no payload,
+/// so we fix one for byte-stable output (f32 0x7fc00000, f64
+/// 0x7ff8000000000000).
+inline Bytes quiet_nan_bytes(DType kind) {
+  if (kind == DType::float32) {
+    return scalar_bytes<std::uint32_t>(0x7fc00000U);
+  }
+  assert(kind == DType::float64);
+  return scalar_bytes<std::uint64_t>(0x7ff8000000000000ULL);
+}
+
+inline Bytes fill_from_double(double value, DataType dt, const std::string& ctx);
+
+/// Encodes a JSON integer fill for `dt`, range-checked with a precise error.
+inline Bytes fill_from_int(std::int64_t value, DataType dt, const std::string& ctx) {
+  const auto check = [&](std::int64_t lo, std::int64_t hi) {
+    if (value < lo || value > hi) {
+      throw error(ctx + ": fill_value " + std::to_string(value) + " out of range for dtype");
+    }
+  };
+  switch (dt.kind) {
+    case DType::boolean:
+      check(0, 1);
+      return scalar_bytes<std::uint8_t>(static_cast<std::uint8_t>(value));
+    case DType::int8:
+      check(std::numeric_limits<std::int8_t>::min(), std::numeric_limits<std::int8_t>::max());
+      return scalar_bytes<std::int8_t>(static_cast<std::int8_t>(value));
+    case DType::int16:
+      check(std::numeric_limits<std::int16_t>::min(), std::numeric_limits<std::int16_t>::max());
+      return scalar_bytes<std::int16_t>(static_cast<std::int16_t>(value));
+    case DType::int32:
+      check(std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::max());
+      return scalar_bytes<std::int32_t>(static_cast<std::int32_t>(value));
+    case DType::int64:
+      return scalar_bytes<std::int64_t>(value);
+    case DType::uint8:
+    case DType::uint16:
+    case DType::uint32:
+    case DType::uint64: {
+      if (value < 0) {
+        throw error(ctx + ": fill_value " + std::to_string(value) +
+                    " is negative for unsigned dtype");
+      }
+      const auto u = static_cast<std::uint64_t>(value);
+      if (dt.kind == DType::uint8 && u > std::numeric_limits<std::uint8_t>::max()) {
+        check(0, 255);
+      }
+      if (dt.kind == DType::uint16 && u > std::numeric_limits<std::uint16_t>::max()) {
+        check(0, 65535);
+      }
+      if (dt.kind == DType::uint32 && u > std::numeric_limits<std::uint32_t>::max()) {
+        check(0, 4294967295LL);
+      }
+      if (dt.kind == DType::uint8) {
+        return scalar_bytes<std::uint8_t>(static_cast<std::uint8_t>(u));
+      }
+      if (dt.kind == DType::uint16) {
+        return scalar_bytes<std::uint16_t>(static_cast<std::uint16_t>(u));
+      }
+      if (dt.kind == DType::uint32) {
+        return scalar_bytes<std::uint32_t>(static_cast<std::uint32_t>(u));
+      }
+      return scalar_bytes<std::uint64_t>(u);
+    }
+    case DType::float32:
+    case DType::float64:
+      return fill_from_double(static_cast<double>(value), dt, ctx);
+    default:
+      throw error(ctx + ": numeric fill_value invalid for this dtype");
+  }
+}
+
+/// Encodes a JSON unsigned fill (needed for uint64 values >= 2^63, which do
+/// not fit int64_t — a known interop trap).
+inline Bytes fill_from_uint(std::uint64_t value, DataType dt, const std::string& ctx) {
+  if (value <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+    return fill_from_int(static_cast<std::int64_t>(value), dt, ctx);
+  }
+  if (dt.kind != DType::uint64) {
+    throw error(ctx + ": fill_value " + std::to_string(value) + " out of range for dtype");
+  }
+  return scalar_bytes<std::uint64_t>(value);
+}
+
+inline Bytes fill_from_double(double value, DataType dt, const std::string& ctx) {
+  switch (dt.kind) {
+    case DType::float32:
+      return scalar_bytes<float>(static_cast<float>(value));
+    case DType::float64:
+      return scalar_bytes<double>(value);
+    default:
+      // Tolerance: integral fills occasionally arrive as JSON floats
+      // (e.g. 1.0 for an int dtype); accept when exactly integral.
+      if (std::nearbyint(value) == value &&
+          value >= static_cast<double>(std::numeric_limits<std::int64_t>::min()) &&
+          value <= static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
+        return fill_from_int(static_cast<std::int64_t>(value), dt, ctx);
+      }
+      throw error(ctx + ": non-integral fill_value for integer dtype");
+  }
+}
+
+/// Emits a normalized fill (native-order element bytes) as JSON, dtype-directed.
+/// Floats use the spec string forms for non-finite values; NaN/Infinity must
+/// never reach nlohmann as doubles (it would serialize them as null).
+inline json fill_to_json(const std::optional<Bytes>& fill, DataType dt) {
+  if (!fill) {
+    return nullptr;
+  }
+  const std::uint8_t* p = fill->data();
+  const auto load = [&](auto probe) {
+    decltype(probe) v;
+    std::memcpy(&v, p, sizeof(v));
+    return v;
+  };
+  switch (dt.kind) {
+    case DType::boolean:
+      return load(std::uint8_t{}) != 0;
+    case DType::int8:
+      return load(std::int8_t{});
+    case DType::int16:
+      return load(std::int16_t{});
+    case DType::int32:
+      return load(std::int32_t{});
+    case DType::int64:
+      return load(std::int64_t{});
+    case DType::uint8:
+      return load(std::uint8_t{});
+    case DType::uint16:
+      return load(std::uint16_t{});
+    case DType::uint32:
+      return load(std::uint32_t{});
+    case DType::uint64:
+      return load(std::uint64_t{});
+    case DType::float32:
+    case DType::float64: {
+      const double v =
+          dt.kind == DType::float32 ? static_cast<double>(load(float{})) : load(double{});
+      if (std::isnan(v)) {
+        return "NaN";
+      }
+      if (std::isinf(v)) {
+        return v > 0 ? "Infinity" : "-Infinity";
+      }
+      return v;
+    }
+    case DType::raw:
+      return base64_encode(p, dt.itemsize);
+    default:
+      throw error("fill_value emission not implemented for this dtype");
+  }
+}
+
+}  // namespace detail
+
+}  // namespace zarr
+
+#endif  // LIBZARR_METADATA_HPP

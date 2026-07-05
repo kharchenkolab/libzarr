@@ -2,9 +2,13 @@
 #  - easily-swappable-parameters: byte-format code passes (offset, length) pairs everywhere
 #  - magic-numbers: format constants (header sizes, signatures) are clearer inline with a spec
 #    citation than as named constants repeated once
-#  - pro-bounds-pointer-arithmetic: byte-level encode/decode is the library's job
+#  - pro-bounds-pointer-arithmetic / pro-bounds-constant-array-index: byte-level
+#    encode/decode with runtime offsets is the library's job
+#  - pro-type-reinterpret-cast: binary iostream I/O requires uint8_t* <-> char*
+#  - avoid-do-while: the N-d odometer idiom (rank 0 must iterate once) is a do-while
 #  - non-private-member-variables / trailing-return-type / identifier-length: style choices
 #  - include-cleaner: false positives on umbrella/vendored headers
+#  - no-recursion: dtype-directed fill parsing recurses by design (bounded by JSON nesting)
 Checks: >
   bugprone-*,
   clang-analyzer-*,
@@ -15,9 +19,13 @@ Checks: >
   portability-*,
   readability-*,
   -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-do-while,
   -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
   -misc-include-cleaner,
+  -misc-no-recursion,
   -misc-non-private-member-variables-in-classes,
   -modernize-use-trailing-return-type,
   -readability-identifier-length,

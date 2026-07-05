@@ -34,6 +34,8 @@ jobs:
       CXX: ${{ matrix.cxx }}
     steps:
       - uses: actions/checkout@v4
+      # Pinned conformance track: the PR gate uses a fixed zarr-python.
+      - run: pip install zarr==2.18.3 numcodecs numpy
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON
       - run: cmake --build build -j
       - run: ctest --test-dir build --output-on-failure

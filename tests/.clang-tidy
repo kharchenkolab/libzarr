@@ -1,0 +1,9 @@
+# Test-only relaxations (headers keep the full config via the standalone-header
+# TUs, which compile under the root .clang-tidy):
+#  - cognitive-complexity: doctest CHECK/SUBCASE macros inflate the metric
+#  - unchecked-optional-access: REQUIRE() aborts the test on nullopt, which the
+#    dataflow analysis cannot see
+InheritParentConfig: true
+Checks: >
+  -readability-function-cognitive-complexity,
+  -bugprone-unchecked-optional-access

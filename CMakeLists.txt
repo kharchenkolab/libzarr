@@ -67,12 +67,41 @@ if(LIBZARR_BUILD_TESTS)
   # Tests
   add_executable(libzarr_tests
     tests/main.cpp
-    tests/test_store.cpp)
+    tests/test_array.cpp
+    tests/test_codecs.cpp
+    tests/test_store.cpp
+    tests/test_v2_metadata.cpp)
+  if(NOT EMSCRIPTEN)
+    # The filesystem adapter is exactly what WASM builds omit.
+    target_sources(libzarr_tests PRIVATE tests/test_fs_store.cpp)
+  endif()
   target_link_libraries(libzarr_tests PRIVATE libzarr::libzarr libzarr_dev_flags)
   add_test(NAME libzarr_tests COMMAND libzarr_tests)
 
+  # Cross-implementation conformance against zarr-python, both directions.
+  if(NOT EMSCRIPTEN)
+    add_executable(conformance_tool tests/conformance_tool.cpp)
+    target_link_libraries(conformance_tool PRIVATE libzarr::libzarr libzarr_dev_flags)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_FOUND)
+      execute_process(COMMAND ${Python3_EXECUTABLE} -c "import zarr"
+        RESULT_VARIABLE libzarr_no_zarr_python OUTPUT_QUIET ERROR_QUIET)
+      if(libzarr_no_zarr_python EQUAL 0)
+        add_test(NAME conformance
+          COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/conformance/run_conformance.sh
+                  ${Python3_EXECUTABLE} $<TARGET_FILE:conformance_tool>
+                  ${CMAKE_CURRENT_BINARY_DIR}/conformance_work)
+      else()
+        message(STATUS "libzarr: zarr-python not found; conformance test disabled")
+      endif()
+    endif()
+  endif()
+
   # Examples are compiled AND run: they are the machine-checked documentation.
   set(LIBZARR_EXAMPLES quickstart)
+  if(LIBZARR_WITH_ZLIB)
+    list(APPEND LIBZARR_EXAMPLES compression)
+  endif()
   foreach(name IN LISTS LIBZARR_EXAMPLES)
     add_executable(example_${name} examples/${name}.cpp)
     target_link_libraries(example_${name} PRIVATE libzarr::libzarr libzarr_dev_flags)
@@ -90,6 +119,9 @@ if(LIBZARR_BUILD_TESTS)
     endif()
     if(EMSCRIPTEN AND header_rel MATCHES "^libzarr/adapters/")
       continue()  # adapters may use OS facilities WASM builds omit
+    endif()
+    if(NOT LIBZARR_WITH_ZLIB AND header_rel MATCHES "codecs_gzip")
+      continue()  # requires zlib; the header #errors without LIBZARR_HAS_ZLIB
     endif()
     string(MAKE_C_IDENTIFIER ${header_rel} header_id)
     set(source ${CMAKE_CURRENT_BINARY_DIR}/standalone/${header_id}.cpp)

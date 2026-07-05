@@ -3,8 +3,25 @@
 A small, dependency-light, **header-only C++17** library for reading and writing the
 [Zarr](https://zarr.dev) array storage format — **v2 and v3**.
 
-> **Status: pre-alpha.** The scaffolding and store abstraction exist; the format engine
-> is under construction. Nothing is API-stable yet.
+> **Status: pre-alpha.** Zarr **v2** read/write works and is conformance-tested against
+> zarr-python (both directions). v3 and sharding are in progress. Nothing is API-stable yet.
+
+```cpp
+auto store = std::make_shared<zarr::MemoryStore>();
+auto root = zarr::Group::create(store);
+
+zarr::ArraySpec spec;
+spec.shape = {4, 6};
+spec.chunks = {2, 3};
+spec.dtype = zarr::DataType::of(zarr::DType::float32);
+auto temperature = root.create_array("temperature", spec);
+
+temperature.write(data.data(), data.size() * sizeof(float));
+temperature.set_attributes({{"units", "celsius"}});
+```
+
+(from [`examples/quickstart.cpp`](examples/quickstart.cpp) — every example is compiled and
+run in CI)
 
 ## Goals
 

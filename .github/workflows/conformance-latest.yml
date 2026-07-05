@@ -1,0 +1,20 @@
+# The second conformance track: latest released zarr-python, weekly. The PR
+# gate pins zarr-python; this job exists to catch upstream drift early. A
+# failure here files work, it does not block PRs.
+name: conformance-latest
+
+on:
+  schedule:
+    - cron: '43 5 * * 1'
+  workflow_dispatch:
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install zarr numcodecs numpy # latest, deliberately unpinned
+      - run: pip show zarr | head -2
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON
+      - run: cmake --build build -j
+      - run: ctest --test-dir build -R conformance --output-on-failure

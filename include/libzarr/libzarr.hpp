@@ -8,7 +8,12 @@
 /// require OS facilities the core must not depend on) are never included
 /// here; include them individually from libzarr/adapters/.
 
+#include "libzarr/array.hpp"
+#include "libzarr/codecs.hpp"
+#include "libzarr/group.hpp"
+#include "libzarr/metadata.hpp"
 #include "libzarr/store.hpp"
 #include "libzarr/types.hpp"
+#include "libzarr/v2.hpp"
 
 #endif  // LIBZARR_LIBZARR_HPP
