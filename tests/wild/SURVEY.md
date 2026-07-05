@@ -11,21 +11,25 @@ worth accommodating (see the policy note below). It discovers arrays via consoli
 python3 tools/survey.py urls.txt ./build/conformance_tool survey_work
 ```
 
-## Run: 2026-07-05 (v0.2.0)
+## Run: 2026-07-05 (widened, post-0.2.0)
 
-Six stores from two unrelated producers — omero-zarr (OME-Zarr microscopy, IDR/EBI) and
-xarray/zarr (Google ARCO-ERA5 climate reanalysis, one v2 and one v3):
+Twelve stores from five unrelated producer ecosystems: omero-zarr (OME-Zarr microscopy,
+IDR/EBI), xarray/zarr climate reanalysis (Google ARCO-ERA5 v2 and v3, WeatherBench2,
+CMIP6/DKRZ, Pangeo-forge), NASA MUR sea-surface temperature, and the DANDI archive
+(NWB-Zarr neurophysiology):
 
 ```
-stores: 6 (0 unreachable)
-arrays probed: 339, OK: 339, rejected: 0
+stores: 12 (0 unreachable)
+arrays probed: 469, OK: 469, rejected: 0
 ```
 
-Every array parsed and resolved cleanly. Constructs actually exercised: **blosc** (328 of
-339 arrays — the dominant real-world v2 compressor, which this release added), dtypes
-`<f4`/`<u2`/`<i8`/`<f8`, both format versions, `/` and `.` separators,
-`bioformats2raw.layout`, and consolidated metadata at ARCO-ERA5's scale (one store carried
-556 inline documents). No beyond-scope construct surfaced in this sample.
+Every array parsed and resolved cleanly. Constructs actually exercised: **blosc** (457 of
+469 arrays — lz4 and internal-zstd cnames; the dominant real-world v2 compressor, which
+this release added), dtypes `<f4`/`<u2`/`<i8`/`<f8`/`<i2`/`|i1` **plus big-endian `>u2`**
+(the byteswap-on-read path, now hit by genuine foreign data), both format versions, `/` and
+`.` separators, `bioformats2raw.layout`, and consolidated metadata at ARCO-ERA5's scale (one
+store carried 556 inline documents). No beyond-scope construct surfaced in this sample —
+across microscopy, climate, oceanography and neurophysiology.
 
 ## Full-data decode run: 2026-07-05 (v0.2.0)
 

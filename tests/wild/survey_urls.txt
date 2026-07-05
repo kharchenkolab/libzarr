@@ -1,9 +1,23 @@
-# Public zarr stores across producers, reachable as of 2026-07.
-# OME-Zarr microscopy (omero-zarr writer), IDR / EBI:
+# Public zarr stores across producers and domains, reachable as of 2026-07.
+# The survey (tools/survey.py) fetches metadata only and tallies rejections;
+# no data is ever committed. Rerun to refresh the tally in SURVEY.md.
+
+# --- Microscopy / OME-Zarr (omero-zarr writer), IDR / EBI ---
 https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr
 https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001247.zarr
 https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0101A/13457537.zarr
 https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0048A/9846151.zarr
-# Climate reanalysis (xarray/zarr writer), Google ARCO-ERA5:
+
+# --- Climate / weather reanalysis (xarray/zarr writer) ---
 https://storage.googleapis.com/gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3
 https://storage.googleapis.com/gcp-public-data-arco-era5/co/single-level-reanalysis.zarr
+https://storage.googleapis.com/gcp-public-data-arco-era5/ar/1959-2022-full_37-1h-0p25deg-chunk-1.zarr-v2
+https://storage.googleapis.com/weatherbench2/datasets/era5/1959-2023_01_10-wb13-6h-1440x721_with_derived_variables.zarr
+https://storage.googleapis.com/cmip6/CMIP6/ScenarioMIP/DKRZ/MPI-ESM1-2-HR/ssp585/r1i1p1f1/Amon/tas/gn/v20190710
+https://ncsa.osn.xsede.org/Pangeo/pangeo-forge/gpcp-feedstock/gpcp.zarr
+
+# --- Oceanography (NASA MUR sea-surface temperature, AWS) ---
+https://mur-sst.s3.us-west-2.amazonaws.com/zarr-v1
+
+# --- Neurophysiology (DANDI archive, NWB-Zarr) ---
+https://dandiarchive.s3.amazonaws.com/zarr/0bda7c93-58b3-4b94-9a83-453e1c370c24
