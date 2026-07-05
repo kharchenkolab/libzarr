@@ -86,6 +86,23 @@ jobs:
           clang-tidy -p build --quiet
           $(find build/standalone -name '*.cpp') tests/*.cpp examples/*.cpp
 
+  # Line-coverage floor for the public headers: guards against a PR that adds
+  # code without exercising it. 85%% is below the current ~89%% (uncovered lines
+  # are mostly error-message branches); raise it as coverage improves.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libblosc-dev libzstd-dev
+      - run: pip install gcovr==8.6
+      - run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          -DLIBZARR_WITH_ZLIB=ON -DLIBZARR_WITH_BLOSC=ON -DLIBZARR_WITH_ZSTD=ON
+          -DCMAKE_CXX_FLAGS="--coverage -O0" -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+      - run: cmake --build build --target libzarr_tests -j
+      - run: ctest --test-dir build -R libzarr_tests --output-on-failure
+      - run: gcovr --root . --filter 'include/libzarr/' build --txt --fail-under-line 85
+
   # Docs are machine-checked or they don't exist: undocumented public symbols
   # fail this job.
   docs:

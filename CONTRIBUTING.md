@@ -42,3 +42,12 @@ cmake --build build -j
 
 Vendored dependencies are pinned in `tools/update_vendored.sh`; bump the version and SHA-256
 together and re-run the script.
+
+Line coverage of the public headers is gated at 85% in CI. To reproduce locally:
+
+```sh
+cmake -S . -B cov -DCMAKE_CXX_FLAGS="--coverage -O0" -DCMAKE_EXE_LINKER_FLAGS=--coverage \
+  -DLIBZARR_WITH_ZLIB=ON -DLIBZARR_WITH_BLOSC=ON -DLIBZARR_WITH_ZSTD=ON
+cmake --build cov --target libzarr_tests -j && (cd cov && ./libzarr_tests)
+gcovr --root . --filter 'include/libzarr/' cov --txt   # add --fail-under-line 85 to gate
+```

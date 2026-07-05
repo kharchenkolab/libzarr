@@ -14,3 +14,4 @@
 *.swp
 # local planning notes
 PLAN.md
+/cov-build/
