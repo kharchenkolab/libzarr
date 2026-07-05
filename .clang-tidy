@@ -1,0 +1,30 @@
+# Enforced in CI with clang-tidy 18 (pinned). Disabled checks each have a reason:
+#  - easily-swappable-parameters: byte-format code passes (offset, length) pairs everywhere
+#  - magic-numbers: format constants (header sizes, signatures) are clearer inline with a spec
+#    citation than as named constants repeated once
+#  - pro-bounds-pointer-arithmetic: byte-level encode/decode is the library's job
+#  - non-private-member-variables / trailing-return-type / identifier-length: style choices
+#  - include-cleaner: false positives on umbrella/vendored headers
+Checks: >
+  bugprone-*,
+  clang-analyzer-*,
+  cppcoreguidelines-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -misc-include-cleaner,
+  -misc-non-private-member-variables-in-classes,
+  -modernize-use-trailing-return-type,
+  -readability-identifier-length,
+  -readability-magic-numbers
+WarningsAsErrors: '*'
+HeaderFilterRegex: 'include/libzarr/'
+FormatStyle: file
+CheckOptions:
+  # Doubles as the macro-naming gate: only LIBZARR_-prefixed macros are allowed.
+  cppcoreguidelines-macro-usage.AllowedRegexp: '^LIBZARR_'

@@ -10,3 +10,5 @@
 # editor/OS
 .DS_Store
 *.swp
+# local planning notes
+PLAN.md

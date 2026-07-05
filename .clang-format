@@ -1,0 +1,4 @@
+# Enforced in CI with clang-format 18 (pinned) — the config, not taste, is authoritative.
+BasedOnStyle: Google
+ColumnLimit: 100
+IncludeBlocks: Preserve

@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: '17 4 * * 1' # weekly: catches toolchain and dependency drift
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install clang-format==18.1.8
+      - run: git ls-files '*.hpp' '*.cpp' ':!third_party/**' | xargs clang-format --dry-run -Werror
+
+  vendored:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./tools/update_vendored.sh && git diff --exit-code third_party/
+
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: gcc, cxx: g++ }
+          - { name: clang, cxx: clang++ }
+    name: build-test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    env:
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON
+      - run: cmake --build build -j
+      - run: ctest --test-dir build --output-on-failure
+
+  sanitize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
+      - run: cmake --build build -j
+      - run: ctest --test-dir build --output-on-failure
+
+  tidy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install clang-tidy==18.1.8
+      - run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLIBZARR_WITH_ZLIB=ON
+      - run: cmake --build build -j # generates standalone-header TUs
+      - run: >
+          clang-tidy -p build --quiet
+          $(find build/standalone -name '*.cpp') tests/*.cpp examples/*.cpp
+
+  # The WASM gate: the zero-dependency core must compile under Emscripten and
+  # the tests must pass under node. Required check — WASM compatibility is a
+  # core constraint, not a feature.
+  emscripten:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+      - run: emcmake cmake -S . -B em-build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build em-build -j
+      - run: ctest --test-dir em-build --output-on-failure

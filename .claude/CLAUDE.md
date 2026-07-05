@@ -1,0 +1,52 @@
+# libzarr
+
+Header-only C++17 library for reading and writing Zarr **v2 and v3**. Small, dependency-light,
+spec-conformant; interoperates with zarr-python.
+
+## Hard requirements
+
+- **Header-only, C++17.** No build system required to consume the library.
+- **WASM compatibility is a core constraint, not a feature.** The core must compile under
+  Emscripten unchanged:
+  - Core never touches the filesystem or OS — all I/O goes through the key→bytes `Store`
+    abstraction. `std::filesystem` lives only in a separate adapter header that WASM builds omit.
+  - Single-threaded core; no threads in public API or hot paths.
+  - Explicit endianness and fixed-width integer types everywhere; never rely on native endianness
+    or platform-width types.
+- **Minimal deps, feature-flagged**: vendored JSON; zlib (gzip) and blosc behind compile-time
+  flags. A minimal build has zero external dependencies; a codec that isn't built in must fail
+  with a clear error, not a missing symbol.
+- **Deterministic output** — byte-stable metadata and chunk layout, verified against zarr-python
+  in conformance tests.
+- Public API stays small and value-based (buffers in, buffers out).
+
+## Development practices
+
+- **Spec support is documented systematically** in `docs/SPEC.md` (linked from README): claims
+  pinned to specific spec versions (Zarr v2; v3.1 core + named codec specs), separate READ
+  (accept) vs WRITE (emit) columns, fixed status vocabulary (full / read-only / parse-only /
+  rejected / out-of-scope), deliberate deviations listed with rationale. Every matrix row must
+  cite the test that proves it; feature PRs update the matrix in the same PR.
+- **Comments cite the spec, not the narrative.** Nontrivial format logic carries a spec
+  citation (`// v3 core: fill_value hex form is the only NaN-payload representation`); every
+  deliberate read-tolerance cites its interop reason (`// NCZarr 4.8.0 wraps fill_value in a
+  1-element array`). No comments that restate the code.
+- **Style is enforced, not discussed**: `.clang-format` + `.clang-tidy` are authoritative;
+  warnings are errors on all compilers; every public header must compile standalone; all
+  macros are `LIBZARR_`-prefixed; asserts for internal invariants, `zarr::error` with a
+  precise message for anything reachable from user data.
+- **Docs are machine-checked or they don't exist**: example code lives in `examples/` and is
+  compiled+run in CI (README/SKILL.md snippets come from there); public symbols without
+  Doxygen comments fail the docs build; CHANGELOG.md is updated in the same PR as the change.
+- **Format behavior ships with proof**: any change to read/write/codec behavior lands with a
+  round-trip test, a zarr-python conformance case where applicable, and its SPEC.md row —
+  in the same PR. Read-tolerances get regression tests named for their origin (z5 #148 etc.).
+- **READ is tolerant, WRITE is canonical**: accept documented legacy/quirk forms on read;
+  emit only canonical spec forms, deterministically (stable JSON key order, indent, float
+  formatting).
+
+## Scope guards
+
+- Storage format only: no data model, no compute, no conventions (NGFF etc.) on top.
+- No JS bindings or WASM packaging in this repo — only the guarantee that the core compiles.
+- ZIP archive support is STORED (uncompressed) entries only, so entries remain byte-range-readable.
