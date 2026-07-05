@@ -1,1 +1,0 @@
-/bin/c++  -O3 -DNDEBUG   CMakeFiles/example_quickstart.dir/examples/quickstart.cpp.o  -o example_quickstart  /usr/lib/x86_64-linux-gnu/libz.so /home/pkharchenko/opt/blosc/lib/libblosc.a -lpthread /usr/lib/x86_64-linux-gnu/libzstd.so 

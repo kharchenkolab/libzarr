@@ -1,1 +1,0 @@
-/bin/c++  -O3 -DNDEBUG   CMakeFiles/fuzz_shard_index_replay.dir/fuzz/fuzz_shard_index.cpp.o  -o fuzz_shard_index_replay  /usr/lib/x86_64-linux-gnu/libz.so /home/pkharchenko/opt/blosc/lib/libblosc.a -lpthread /usr/lib/x86_64-linux-gnu/libzstd.so 
