@@ -4,6 +4,7 @@
 #define LIBZARR_CODECS_HPP
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -14,6 +15,9 @@
 
 #ifdef LIBZARR_HAS_ZLIB
 #include "libzarr/codecs_gzip.hpp"
+#endif
+#ifdef LIBZARR_HAS_BLOSC
+#include "libzarr/codecs_blosc.hpp"
 #endif
 
 /// \file codecs.hpp
@@ -47,12 +51,11 @@ class CodecPipeline {
     p.swap_width_ = is_complex(meta.dtype.kind) ? meta.dtype.itemsize / 2 : meta.dtype.itemsize;
 
     // v3 core: array->array*, then exactly one array->bytes, then bytes->bytes*.
-    enum class Stage : std::uint8_t { array_array, bytes_bytes };
-    Stage stage = Stage::array_array;
+    bool past_bytes = false;
     bool have_bytes = false;
     for (const CodecSpec& codec : meta.codecs) {
       if (codec.name == "transpose") {
-        if (stage != Stage::array_array) {
+        if (past_bytes) {
           throw error("codec 'transpose' must precede the 'bytes' codec");
         }
         p.set_transpose(codec);
@@ -61,20 +64,23 @@ class CodecPipeline {
           throw error("codec chain has more than one 'bytes' codec");
         }
         have_bytes = true;
-        stage = Stage::bytes_bytes;
+        past_bytes = true;
         p.set_byte_order(codec);
-      } else if (codec.name == "gzip" || codec.name == "zlib") {
-        if (stage != Stage::bytes_bytes) {
+      } else if (codec.name == "sharding_indexed") {
+        // array->bytes like "bytes", so reject by name before placement checks.
+        throw error(
+            "codec 'sharding_indexed' is not supported yet (sharding arrives in a later phase)");
+      } else {
+        if (!past_bytes) {
           throw error("codec '" + codec.name + "' must follow the 'bytes' codec");
         }
-        p.add_deflate(codec);
-      } else {
-        throw error("unknown codec '" + codec.name + "'");
+        p.add_byte_stage(codec, meta);
       }
     }
     if (!have_bytes) {
       throw error("codec chain is missing the 'bytes' (array->bytes) codec");
     }
+    p.compute_expected_sizes();
     return p;
   }
 
@@ -82,17 +88,18 @@ class CodecPipeline {
   [[nodiscard]] std::uint64_t decoded_chunk_bytes() const { return chunk_bytes_; }
 
   /// True when stored bytes equal decoded bytes element-for-element (no
-  /// transpose, no byteswap, no compression) — the precondition for
-  /// byte-range sub-chunk reads.
+  /// transpose, no byteswap, no bytes->bytes stage) — the precondition for
+  /// byte-range sub-chunk reads without post-processing.
   [[nodiscard]] bool is_identity() const {
-    return !transpose_order_ && !byteswap_ && deflate_stages_.empty();
+    return !transpose_order_ && !byteswap_ && byte_stages_.empty();
   }
 
   /// True when the stored byte at a given linear element offset is
-  /// independent of compression (no bytes->bytes stage) — byte-range reads
-  /// work, possibly with a byteswap. Transposed layouts do not qualify.
+  /// independent of the rest of the chunk (no bytes->bytes stage) —
+  /// byte-range reads work, possibly with a byteswap. Transposed layouts do
+  /// not qualify.
   [[nodiscard]] bool supports_partial_read() const {
-    return !transpose_order_ && deflate_stages_.empty();
+    return !transpose_order_ && byte_stages_.empty();
   }
 
   /// Encodes a native, C-order full chunk. The buffer must be exactly
@@ -110,13 +117,8 @@ class CodecPipeline {
     if (byteswap_) {
       detail::byteswap_inplace(chunk.data(), chunk.size() / swap_width_, swap_width_);
     }
-    for (const DeflateStage& stage : deflate_stages_) {
-#ifdef LIBZARR_HAS_ZLIB
-      chunk = detail::deflate_bytes(chunk, stage.level, stage.gzip_framing, "encode");
-#else
-      static_cast<void>(stage);
-      throw error("codec requires zlib but LIBZARR_HAS_ZLIB is not defined");
-#endif
+    for (const ByteStage& stage : byte_stages_) {
+      chunk = encode_stage(stage, std::move(chunk));
     }
     return chunk;
   }
@@ -134,16 +136,8 @@ class CodecPipeline {
   /// Decodes stored chunk bytes to a native, C-order full chunk of exactly
   /// decoded_chunk_bytes() bytes; anything inconsistent is a zarr::error.
   [[nodiscard]] Bytes decode(Bytes stored) const {
-    for (std::size_t i = deflate_stages_.size(); i-- > 0;) {
-#ifdef LIBZARR_HAS_ZLIB
-      // The innermost bytes->bytes stage must yield the exact chunk size;
-      // outer stages' sizes are unknowable in advance.
-      const bool innermost = i == 0;
-      stored = detail::inflate_bytes(
-          stored, innermost ? std::optional<std::uint64_t>(chunk_bytes_) : std::nullopt, "decode");
-#else
-      throw error("codec requires zlib but LIBZARR_HAS_ZLIB is not defined");
-#endif
+    for (std::size_t i = byte_stages_.size(); i-- > 0;) {
+      stored = decode_stage(byte_stages_[i], std::move(stored), decode_expected_[i]);
     }
     if (stored.size() != chunk_bytes_) {
       throw error("decode: chunk is " + std::to_string(stored.size()) + " bytes, expected " +
@@ -161,10 +155,91 @@ class CodecPipeline {
   }
 
  private:
-  struct DeflateStage {
+  struct ByteStage {
+    enum class Kind : std::uint8_t {
+      deflate,  // gzip/zlib framing
+      crc32c,
+      blosc,
+    };
+    Kind kind = Kind::deflate;
+    // deflate
     int level = 5;
     bool gzip_framing = true;
+    // blosc (encode-side parameters; decode is self-describing)
+    std::string blosc_cname = "lz4";
+    int blosc_clevel = 5;
+    int blosc_shuffle = 1;
+    std::uint32_t blosc_typesize = 1;
+    std::uint64_t blosc_blocksize = 0;
   };
+
+  [[nodiscard]] static Bytes encode_stage(const ByteStage& stage, Bytes data) {
+    switch (stage.kind) {
+      case ByteStage::Kind::deflate:
+#ifdef LIBZARR_HAS_ZLIB
+        return detail::deflate_bytes(data, stage.level, stage.gzip_framing, "encode");
+#else
+        throw error("codec requires zlib but LIBZARR_HAS_ZLIB is not defined");
+#endif
+      case ByteStage::Kind::crc32c: {
+        // v3 crc32c codec: little-endian CRC-32C of the payload, appended.
+        const std::uint32_t checksum = detail::crc32c(data.data(), data.size());
+        for (int i = 0; i < 4; ++i) {
+          data.push_back(static_cast<std::uint8_t>(checksum >> (8 * i)));
+        }
+        return data;
+      }
+      case ByteStage::Kind::blosc:
+#ifdef LIBZARR_HAS_BLOSC
+      {
+        detail::BloscParams params;
+        params.cname = stage.blosc_cname;
+        params.clevel = stage.blosc_clevel;
+        params.shuffle = stage.blosc_shuffle;
+        params.typesize = stage.blosc_typesize;
+        params.blocksize = detail::checked_size(stage.blosc_blocksize, "blosc blocksize");
+        return detail::blosc_compress_bytes(data, params, "encode");
+      }
+#else
+        throw error("codec requires blosc but LIBZARR_HAS_BLOSC is not defined");
+#endif
+    }
+    return data;  // unreachable
+  }
+
+  [[nodiscard]] static Bytes decode_stage(const ByteStage& stage, Bytes data,
+                                          [[maybe_unused]] std::optional<std::uint64_t> expected) {
+    switch (stage.kind) {
+      case ByteStage::Kind::deflate:
+#ifdef LIBZARR_HAS_ZLIB
+        return detail::inflate_bytes(data, expected, "decode");
+#else
+        throw error("codec requires zlib but LIBZARR_HAS_ZLIB is not defined");
+#endif
+      case ByteStage::Kind::crc32c: {
+        if (data.size() < 4) {
+          throw error("decode: crc32c codec needs at least 4 bytes");
+        }
+        const std::size_t payload = data.size() - 4;
+        std::uint32_t stored_crc = 0;
+        for (int i = 3; i >= 0; --i) {
+          stored_crc = (stored_crc << 8U) | data[payload + static_cast<std::size_t>(i)];
+        }
+        if (detail::crc32c(data.data(), payload) != stored_crc) {
+          throw error("decode: crc32c checksum mismatch (corrupt chunk)");
+        }
+        data.resize(payload);
+        return data;
+      }
+      case ByteStage::Kind::blosc:
+#ifdef LIBZARR_HAS_BLOSC
+        return detail::blosc_decompress_bytes(data, expected, "decode");
+#else
+        throw error("codec requires blosc but LIBZARR_HAS_BLOSC is not defined");
+#endif
+    }
+    return data;  // unreachable
+  }
 
   void set_transpose(const CodecSpec& codec) {
     const auto it = codec.configuration.find("order");
@@ -229,8 +304,29 @@ class CodecPipeline {
     byteswap_ = swap_width_ > 1 && stored_little != detail::host_is_little_endian();
   }
 
+  void add_byte_stage(const CodecSpec& codec, const ArrayMeta& meta) {
+    if (codec.name == "gzip" || codec.name == "zlib") {
+      add_deflate(codec);
+    } else if (codec.name == "crc32c") {
+      ByteStage stage;
+      stage.kind = ByteStage::Kind::crc32c;
+      byte_stages_.push_back(stage);
+    } else if (codec.name == "blosc") {
+      add_blosc(codec, meta);
+    } else if (codec.name == "zstd") {
+      throw error("codec 'zstd' is not supported yet");
+    } else if (codec.name == "sharding_indexed") {
+      throw error(
+          "codec 'sharding_indexed' is not supported yet (sharding arrives in a later "
+          "phase)");
+    } else {
+      throw error("unknown codec '" + codec.name + "'");
+    }
+  }
+
   void add_deflate(const CodecSpec& codec) {
-    DeflateStage stage;
+    ByteStage stage;
+    stage.kind = ByteStage::Kind::deflate;
     stage.gzip_framing = codec.name == "gzip";
     const auto it = codec.configuration.find("level");
     if (it != codec.configuration.end()) {
@@ -243,7 +339,76 @@ class CodecPipeline {
     throw error("codec '" + codec.name +
                 "' is not built into this libzarr (compile with LIBZARR_HAS_ZLIB and link zlib)");
 #endif
-    deflate_stages_.push_back(stage);
+    byte_stages_.push_back(stage);
+  }
+
+  void add_blosc(const CodecSpec& codec, const ArrayMeta& meta) {
+    ByteStage stage;
+    stage.kind = ByteStage::Kind::blosc;
+    // A default-constructed CodecSpec has a *null* configuration, on which
+    // json::value() throws; normalize to an empty object.
+    const json config = codec.configuration.is_object() ? codec.configuration : json::object();
+    stage.blosc_cname = config.value("cname", "lz4");
+    const std::int64_t clevel = config.value("clevel", std::int64_t{5});
+    if (clevel < 0 || clevel > 9) {
+      throw error("codec 'blosc': 'clevel' must be in 0..9");
+    }
+    stage.blosc_clevel = static_cast<int>(clevel);
+    const json shuffle = config.value("shuffle", json("shuffle"));
+    if (shuffle == "noshuffle") {
+      stage.blosc_shuffle = 0;
+    } else if (shuffle == "shuffle") {
+      stage.blosc_shuffle = 1;
+    } else if (shuffle == "bitshuffle") {
+      stage.blosc_shuffle = 2;
+    } else if (shuffle.is_number_integer() && shuffle.get<std::int64_t>() >= -1 &&
+               shuffle.get<std::int64_t>() <= 2) {
+      // v2 numcodecs uses numeric shuffle; -1 = automatic (bitshuffle for
+      // 1-byte types, else byte shuffle) — read tolerance.
+      const auto n = shuffle.get<std::int64_t>();
+      if (n == -1) {
+        stage.blosc_shuffle = meta.dtype.itemsize == 1 ? 2 : 1;
+      } else {
+        stage.blosc_shuffle = static_cast<int>(n);
+      }
+    } else {
+      throw error("codec 'blosc': unknown shuffle " + shuffle.dump());
+    }
+    stage.blosc_typesize =
+        static_cast<std::uint32_t>(config.value("typesize", std::int64_t{meta.dtype.itemsize}));
+    stage.blosc_blocksize = static_cast<std::uint64_t>(config.value("blocksize", std::int64_t{0}));
+    bool known_cname = false;
+    for (const char* name : {"blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd"}) {
+      known_cname = known_cname || stage.blosc_cname == name;
+    }
+    if (!known_cname) {
+      throw error("codec 'blosc': unknown cname '" + stage.blosc_cname + "'");
+    }
+#ifndef LIBZARR_HAS_BLOSC
+    throw error(
+        "codec 'blosc' is not built into this libzarr (compile with LIBZARR_HAS_BLOSC and link "
+        "c-blosc)");
+#endif
+    byte_stages_.push_back(stage);
+  }
+
+  /// Precomputes, per stage, the byte size its decode must produce: known for
+  /// the segment of size-preserving/size-shifting stages nearest the array
+  /// (crc32c adds exactly 4), unknowable outside the first compressor.
+  void compute_expected_sizes() {
+    decode_expected_.assign(byte_stages_.size(), std::nullopt);
+    std::optional<std::uint64_t> size = chunk_bytes_;
+    for (std::size_t i = 0; i < byte_stages_.size(); ++i) {
+      decode_expected_[i] = size;  // decode of stage i must yield its encode input
+      if (!size) {
+        continue;
+      }
+      if (byte_stages_[i].kind == ByteStage::Kind::crc32c) {
+        size = *size + 4;
+      } else {
+        size = std::nullopt;  // compressed size is unknowable
+      }
+    }
   }
 
   std::vector<std::uint64_t> chunk_shape_;
@@ -253,7 +418,8 @@ class CodecPipeline {
   bool byteswap_ = false;
   std::optional<std::vector<std::uint32_t>> transpose_order_;
   std::vector<std::uint64_t> gather_strides_;
-  std::vector<DeflateStage> deflate_stages_;
+  std::vector<ByteStage> byte_stages_;
+  std::vector<std::optional<std::uint64_t>> decode_expected_;
 };
 
 }  // namespace zarr

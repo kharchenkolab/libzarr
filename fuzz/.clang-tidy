@@ -1,0 +1,6 @@
+# Fuzz harnesses deliberately swallow zarr::error — malformed input is the
+# expected case; the sanitizers are the oracle for everything else.
+InheritParentConfig: true
+Checks: >
+  -bugprone-empty-catch,
+  -bugprone-exception-escape

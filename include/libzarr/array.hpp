@@ -18,6 +18,7 @@
 #include "libzarr/store.hpp"
 #include "libzarr/types.hpp"
 #include "libzarr/v2.hpp"
+#include "libzarr/v3.hpp"
 
 /// \file array.hpp
 /// The Array API: create/open, whole-array and per-chunk read/write, and
@@ -142,15 +143,15 @@ class Array {
     return array;
   }
 
-  /// Opens an existing array at `path`. Reads through consolidated metadata
-  /// when the caller provides it (see Group); otherwise reads .zarray/.zattrs.
-  static Array open(std::shared_ptr<Store> store, const std::string& path,
+  /// Opens an existing array at `path`, probing v3 (zarr.json) first, then
+  /// v2 (.zarray). `consolidated` is a pre-fetched store-key -> document map
+  /// (supplied by Group when consolidated metadata is present).
+  static Array open(std::shared_ptr<Store> store, const std::string& path, OpenOptions options = {},
                     const std::shared_ptr<const json>& consolidated = nullptr) {
     if (!store) {
       throw error("Array::open: null store");
     }
     detail::validate_path(path);
-    const std::string meta_key = v2::meta_key(path, v2::kArraySuffix);
     const auto read_doc = [&](const std::string& key) -> std::optional<json> {
       if (consolidated) {
         const auto it = consolidated->find(key);
@@ -166,16 +167,22 @@ class Array {
       return v2::parse_json(*bytes, key);
     };
 
+    // Probe order: zarr.json first, so v3 opens cost one round-trip.
+    const std::string v3_key = v3::meta_key(path);
+    if (const auto doc = read_doc(v3_key)) {
+      if (doc->is_object() && doc->value("node_type", "") == std::string("group")) {
+        throw error("'" + path + "' is a group, not an array");
+      }
+      return {std::move(store), path, v3::parse_array_meta(*doc, v3_key, options.lenient)};
+    }
+
+    const std::string meta_key = v2::meta_key(path, v2::kArraySuffix);
     auto doc = read_doc(meta_key);
     if (!doc) {
-      // Precise probe: name the actual situation, not just "missing key".
-      if (store->exists(v2::meta_key(path, "zarr.json"))) {
-        throw error("'" + path + "' is a Zarr v3 node; v3 support arrives in a later phase");
-      }
       if (store->exists(v2::meta_key(path, v2::kGroupSuffix))) {
         throw error("'" + path + "' is a group, not an array");
       }
-      throw error("no array at '" + path + "' (" + meta_key + " not found)");
+      throw error("no array at '" + path + "' (neither " + v3_key + " nor " + meta_key + " found)");
     }
     ArrayMeta meta = v2::parse_array_meta(*doc, meta_key);
     if (const auto attrs = read_doc(v2::meta_key(path, v2::kAttrsSuffix))) {
@@ -293,6 +300,9 @@ class Array {
 
   /// Replaces the user attributes and persists them.
   void set_attributes(json attributes) {
+    if (meta_.format == ZarrFormat::v3) {
+      throw error("writing v3 metadata arrives in a later phase");
+    }
     meta_.attributes = std::move(attributes);
     write_attributes();
   }
@@ -310,7 +320,9 @@ class Array {
                     std::to_string(d) + " (grid extent " + std::to_string(grid[d]) + ")");
       }
     }
-    const std::string relative = v2::chunk_key(index, meta_.dimension_separator);
+    const std::string relative = meta_.key_encoding == ChunkKeyKind::v3_default
+                                     ? v3::chunk_key(index, meta_.dimension_separator)
+                                     : v2::chunk_key(index, meta_.dimension_separator);
     return path_.empty() ? relative : path_ + "/" + relative;
   }
 

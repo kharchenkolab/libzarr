@@ -13,8 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libblosc-dev
       - run: pip install zarr numcodecs numpy # latest, deliberately unpinned
       - run: pip show zarr | head -2
-      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON -DLIBZARR_WITH_BLOSC=ON
       - run: cmake --build build -j
       - run: ctest --test-dir build -R conformance --output-on-failure

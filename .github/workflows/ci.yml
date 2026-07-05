@@ -34,11 +34,33 @@ jobs:
       CXX: ${{ matrix.cxx }}
     steps:
       - uses: actions/checkout@v4
-      # Pinned conformance track: the PR gate uses a fixed zarr-python.
+      - run: sudo apt-get update && sudo apt-get install -y libblosc-dev
+      # Pinned conformance track: the PR gate uses a fixed zarr-python
+      # (3.x writes both v2 and v3 fixtures).
+      - run: pip install zarr==3.2.1 numcodecs numpy
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON -DLIBZARR_WITH_BLOSC=ON
+      - run: cmake --build build -j
+      - run: ctest --test-dir build --output-on-failure
+
+  # Old-generation writer coverage: zarr-python 2.x fixtures must stay readable.
+  conformance-zarr2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - run: pip install zarr==2.18.3 numcodecs numpy
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DLIBZARR_WITH_ZLIB=ON
       - run: cmake --build build -j
-      - run: ctest --test-dir build --output-on-failure
+      - run: ctest --test-dir build -R conformance --output-on-failure
+
+  fuzz:
+    runs-on: ubuntu-latest
+    env:
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DLIBZARR_BUILD_FUZZERS=ON -DLIBZARR_WITH_ZLIB=ON
+      - run: cmake --build build --target fuzz_metadata -j
+      - run: ./build/fuzz_metadata -max_total_time=60 fuzz/corpus/metadata
 
   sanitize:
     runs-on: ubuntu-latest

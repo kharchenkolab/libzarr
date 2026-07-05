@@ -291,19 +291,6 @@ inline std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::st
 /// must-understand rule and extra keys are common in the wild.
 namespace detail_v2 {
 
-inline std::vector<std::uint64_t> parse_extents(const json& v, const char* name,
-                                                const std::string& ctx) {
-  if (!v.is_array()) {
-    throw error(ctx + ": '" + name + "' must be an array");
-  }
-  std::vector<std::uint64_t> out;
-  out.reserve(v.size());
-  for (const json& e : v) {
-    out.push_back(detail::json_to_uint64(e, ctx + ": " + name));
-  }
-  return out;
-}
-
 inline char parse_separator(const json& j, const std::string& ctx) {
   const auto it = j.find("dimension_separator");
   if (it == j.end()) {
@@ -358,8 +345,8 @@ inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx) {
 
   ArrayMeta meta;
   meta.format = ZarrFormat::v2;
-  meta.shape = detail_v2::parse_extents(require("shape"), "shape", ctx);
-  meta.chunk_shape = detail_v2::parse_extents(require("chunks"), "chunks", ctx);
+  meta.shape = detail::parse_extents(require("shape"), "shape", ctx);
+  meta.chunk_shape = detail::parse_extents(require("chunks"), "chunks", ctx);
   if (meta.chunk_shape.size() != meta.shape.size()) {
     throw error(ctx + ": 'chunks' must be an array of the same rank as 'shape'");
   }

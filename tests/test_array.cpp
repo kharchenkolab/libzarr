@@ -185,10 +185,10 @@ TEST_CASE("open failures are precise") {
   auto store = std::make_shared<zarr::MemoryStore>();
   CHECK_THROWS_AS((void)zarr::Array::open(store, "nope"), zarr::error);
 
+  // A malformed zarr.json is reported as such (the v3 probe runs first).
   store->write("v3node/zarr.json", Bytes{'{', '}'});
   CHECK_THROWS_WITH_AS((void)zarr::Array::open(store, "v3node"),
-                       "'v3node' is a Zarr v3 node; v3 support arrives in a later phase",
-                       zarr::error);
+                       "v3node/zarr.json: missing required member 'zarr_format'", zarr::error);
 
   zarr::Group::create(store, "grp");
   CHECK_THROWS_WITH_AS((void)zarr::Array::open(store, "grp"), "'grp' is a group, not an array",

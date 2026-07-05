@@ -59,11 +59,22 @@ Bytes pattern(DataType dt, std::uint64_t n) {
       case DType::uint64:
         put(v);
         break;
+      case DType::float16:
+        put(zarr::detail::double_to_half_bits(static_cast<double>(i % 51) * 0.25 - 5.0));
+        break;
       case DType::float32:
         put(static_cast<float>(static_cast<double>(i % 51) * 0.25 - 5.0));
         break;
       case DType::float64:
         put(static_cast<double>(i % 51) * 0.25 - 5.0);
+        break;
+      case DType::complex64:
+        put(static_cast<float>(static_cast<double>(i % 51) * 0.25 - 5.0));
+        put(static_cast<float>(static_cast<double>(i % 23) * 0.5 - 2.0));
+        break;
+      case DType::complex128:
+        put(static_cast<double>(i % 51) * 0.25 - 5.0);
+        put(static_cast<double>(i % 23) * 0.5 - 2.0);
         break;
       case DType::raw:
         for (std::uint32_t j = 0; j < dt.itemsize; ++j) {
@@ -124,20 +135,42 @@ void verify_array(const zarr::Array& array, const std::string& name) {
 
 int verify_store(const std::shared_ptr<zarr::Store>& store, const std::string& what) {
   int count = 0;
+  int skipped = 0;  // NOLINT(misc-const-correctness): mutated only in codec-gated builds
   for (const std::string& key : store->list_prefix("")) {
-    const std::string suffix = "/.zarray";
-    if (key.size() <= suffix.size() ||
-        key.compare(key.size() - suffix.size(), suffix.size(), suffix) != 0) {
+    std::string path;
+    const std::string v2_suffix = "/.zarray";
+    const std::string v3_suffix = "/zarr.json";
+    if (key.size() > v2_suffix.size() &&
+        key.compare(key.size() - v2_suffix.size(), v2_suffix.size(), v2_suffix) == 0) {
+      path = key.substr(0, key.size() - v2_suffix.size());
+    } else if (key.size() > v3_suffix.size() &&
+               key.compare(key.size() - v3_suffix.size(), v3_suffix.size(), v3_suffix) == 0) {
+      // v3: only nodes whose zarr.json declares an array.
+      const auto doc = zarr::v2::parse_json(*store->read(key), key);
+      if (!doc.is_object() || doc.value("node_type", "") != std::string("array")) {
+        continue;
+      }
+      path = key.substr(0, key.size() - v3_suffix.size());
+    } else {
       continue;
     }
-    const std::string path = key.substr(0, key.size() - suffix.size());
+#ifndef LIBZARR_HAS_BLOSC
+    if (path.find("blosc") != std::string::npos) {
+      ++skipped;  // fixture needs a codec this build omits
+      continue;
+    }
+#endif
     verify_array(zarr::Array::open(store, path), path);
     ++count;
   }
   if (count == 0) {
     throw zarr::error("no arrays found in " + what);
   }
-  std::cout << "verified " << count << " fixture arrays in " << what << "\n";
+  std::cout << "verified " << count << " fixture arrays in " << what;
+  if (skipped > 0) {
+    std::cout << " (skipped " << skipped << " needing codecs not built in)";
+  }
+  std::cout << "\n";
   return 0;
 }
 

@@ -16,6 +16,12 @@ mkdir -p "$WORK"
 "$TOOL" write "$WORK/from_libzarr"
 "$PYTHON" "$HERE/read_back.py" "$WORK/from_libzarr"
 
+# v3 fixtures need zarr-python 3.x; the pinned zarr-2 track skips this leg.
+if "$PYTHON" -c "import sys, zarr; sys.exit(0 if int(zarr.__version__.split('.')[0]) >= 3 else 1)"; then
+  "$PYTHON" "$HERE/write_fixtures_v3.py" "$WORK/from_python_v3"
+  "$TOOL" read "$WORK/from_python_v3"
+fi
+
 "$PYTHON" "$HERE/write_zip_fixture.py" "$WORK/from_python.zip"
 "$TOOL" read-zip "$WORK/from_python.zip"
 

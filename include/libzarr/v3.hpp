@@ -1,0 +1,468 @@
+// SPDX-License-Identifier: MIT
+
+#ifndef LIBZARR_V3_HPP
+#define LIBZARR_V3_HPP
+
+#include <cstdint>
+#include <initializer_list>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "libzarr/detail/common.hpp"
+#include "libzarr/metadata.hpp"
+#include "libzarr/types.hpp"
+#include "libzarr/v2.hpp"
+
+/// \file v3.hpp
+/// Zarr v3 metadata (zarr.json): read-side parsing into normalized ArrayMeta.
+/// Strict by the v3.1 core spec (unrecognized members are errors) with an
+/// opt-in lenient mode; every deliberate read-tolerance cites its origin.
+
+namespace zarr::v3 {
+
+inline constexpr const char* kMetaKey = "zarr.json";
+
+/// Store key of the metadata document for the node at `path` ("" = root).
+inline std::string meta_key(const std::string& path) {
+  return path.empty() ? kMetaKey : path + "/" + kMetaKey;
+}
+
+namespace detail_v3 {
+
+/// v3 core: an implementation MUST fail on metadata members it does not
+/// recognize, unless the member is an object carrying "must_understand":
+/// false. Lenient mode (opt-in) ignores them instead.
+inline void check_members(const json& j, std::initializer_list<std::string_view> known,
+                          const std::string& ctx, bool lenient) {
+  if (lenient) {
+    return;
+  }
+  for (const auto& item : j.items()) {
+    bool recognized = false;
+    for (const std::string_view name : known) {
+      recognized = recognized || item.key() == name;
+    }
+    if (recognized) {
+      continue;
+    }
+    if (item.value().is_object() && !item.value().value("must_understand", true)) {
+      continue;
+    }
+    throw error(ctx + ": unknown metadata member '" + item.key() +
+                "' (v3 core requires rejecting unrecognized members; open in lenient mode to "
+                "ignore it)");
+  }
+}
+
+inline const json& require(const json& j, const char* name, const std::string& ctx) {
+  const auto it = j.find(name);
+  if (it == j.end()) {
+    throw error(ctx + ": missing required member '" + name + "'");
+  }
+  return *it;
+}
+
+/// Value of one hex digit, or 99 when invalid.
+inline std::uint32_t hex_digit(char c) {
+  if (c >= '0' && c <= '9') {
+    return static_cast<std::uint32_t>(c - '0');
+  }
+  if (c >= 'a' && c <= 'f') {
+    return static_cast<std::uint32_t>(c - 'a') + 10U;
+  }
+  if (c >= 'A' && c <= 'F') {
+    return static_cast<std::uint32_t>(c - 'A') + 10U;
+  }
+  return 99;
+}
+
+/// Parses "0x..."/"0b..." bit-pattern strings into `itemsize` bytes, given in
+/// the written (big-endian numeral) order.
+inline std::optional<Bytes> parse_bit_string(const std::string& s, std::uint32_t itemsize,
+                                             const std::string& ctx) {
+  const bool hex = detail::starts_with(s, "0x");
+  const bool bin = detail::starts_with(s, "0b");
+  if (!hex && !bin) {
+    return std::nullopt;
+  }
+  const std::string_view digits = std::string_view(s).substr(2);
+  const std::size_t per_byte = hex ? 2 : 8;
+  const std::uint32_t base = hex ? 16U : 2U;
+  if (digits.size() != itemsize * per_byte) {
+    throw error(ctx + ": bit-pattern fill_value '" + s + "' must have " +
+                std::to_string(itemsize * per_byte) + (hex ? " hex" : " binary") + " digits");
+  }
+  Bytes out(itemsize);
+  for (std::uint32_t b = 0; b < itemsize; ++b) {
+    std::uint32_t value = 0;
+    for (std::size_t d = 0; d < per_byte; ++d) {
+      const std::uint32_t digit = hex_digit(digits[b * per_byte + d]);
+      if (digit >= base) {
+        std::string msg = ctx;
+        msg += ": invalid digit in fill_value '";
+        msg += s;
+        msg += "'";
+        throw error(msg);
+      }
+      value = value * base + digit;
+    }
+    out[b] = static_cast<std::uint8_t>(value);
+  }
+  return out;
+}
+
+/// One float component per the v3 fill_value rules: number, "NaN",
+/// "Infinity", "-Infinity", or a bit-pattern string.
+inline Bytes float_fill(const json& v, DType kind, std::uint32_t itemsize, const std::string& ctx) {
+  if (v.is_number()) {
+    return detail::fill_from_double(v.get<double>(), DataType{kind, itemsize}, ctx);
+  }
+  if (v.is_string()) {
+    const auto s = v.get<std::string>();
+    if (s == "NaN") {
+      return detail::quiet_nan_bytes(kind);
+    }
+    if (s == "Infinity") {
+      return detail::infinity_bytes(kind, false);
+    }
+    if (s == "-Infinity") {
+      return detail::infinity_bytes(kind, true);
+    }
+    if (auto bits = parse_bit_string(s, itemsize, ctx)) {
+      // v3 core: the string is the numeral of the bit pattern (big-endian
+      // digits); convert to native byte order.
+      if (detail::host_is_little_endian()) {
+        std::reverse(bits->begin(), bits->end());
+      }
+      return *std::move(bits);
+    }
+    throw error(ctx + ": cannot interpret float fill_value '" + s + "'");
+  }
+  throw error(ctx + ": cannot interpret float fill_value " + v.dump());
+}
+
+}  // namespace detail_v3
+
+/// Parses a v3 data_type name. Extension (object) data types are rejected.
+inline DataType parse_data_type(const json& v, const std::string& ctx) {
+  if (!v.is_string()) {
+    throw error(ctx + ": extension data_type objects are not supported");
+  }
+  const auto s = v.get<std::string>();
+  struct NamedType {
+    std::string_view name;
+    DType kind;
+  };
+  static constexpr std::array<NamedType, 14> kNames{{{"bool", DType::boolean},
+                                                     {"int8", DType::int8},
+                                                     {"int16", DType::int16},
+                                                     {"int32", DType::int32},
+                                                     {"int64", DType::int64},
+                                                     {"uint8", DType::uint8},
+                                                     {"uint16", DType::uint16},
+                                                     {"uint32", DType::uint32},
+                                                     {"uint64", DType::uint64},
+                                                     {"float16", DType::float16},
+                                                     {"float32", DType::float32},
+                                                     {"float64", DType::float64},
+                                                     {"complex64", DType::complex64},
+                                                     {"complex128", DType::complex128}}};
+  for (const NamedType& named : kNames) {
+    if (s == named.name) {
+      return DataType::of(named.kind);
+    }
+  }
+  if (s.size() > 1 && s[0] == 'r') {
+    std::uint64_t bits = 0;
+    for (std::size_t i = 1; i < s.size(); ++i) {
+      if (s[i] < '0' || s[i] > '9' || bits > 0xFFFFFF) {
+        bits = 0;
+        break;
+      }
+      bits = bits * 10 + static_cast<std::uint64_t>(s[i] - '0');
+    }
+    if (bits == 0 || bits % 8 != 0) {
+      throw error(ctx + ": raw data_type '" + s + "' must be r<bits> with bits a multiple of 8");
+    }
+    return DataType::raw_bytes(static_cast<std::uint32_t>(bits / 8));
+  }
+  throw error(ctx + ": unknown data_type '" + s + "'");
+}
+
+namespace detail_v3 {
+
+/// Raw (r<bits>) fills: a bit-pattern string of exactly itemsize bytes (kept
+/// in the written byte order), or an array of byte values.
+inline Bytes raw_fill(const json& v, DataType dt, const std::string& ctx) {
+  if (v.is_string()) {
+    if (auto bits = parse_bit_string(v.get<std::string>(), dt.itemsize, ctx)) {
+      return *std::move(bits);
+    }
+    throw error(ctx + ": raw fill_value string must be a 0x/0b bit pattern");
+  }
+  if (v.is_array() && v.size() == dt.itemsize) {
+    Bytes out(dt.itemsize);
+    for (std::uint32_t i = 0; i < dt.itemsize; ++i) {
+      const std::uint64_t byte = detail::json_to_uint64(v[i], ctx + ": fill_value");
+      if (byte > 0xFF) {
+        throw error(ctx + ": raw fill_value bytes must be 0..255");
+      }
+      out[i] = static_cast<std::uint8_t>(byte);
+    }
+    return out;
+  }
+  throw error(ctx + ": raw fill_value must be a bit-pattern string or an array of " +
+              std::to_string(dt.itemsize) + " byte values");
+}
+
+}  // namespace detail_v3
+
+/// Parses a v3 fill_value, dtype-directed (v3 core "Fill value" table).
+inline std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::string& ctx,
+                                       bool lenient) {
+  if (v.is_null()) {
+    // v3 requires a concrete fill_value; null appears from pre-final writers.
+    if (lenient) {
+      return std::nullopt;
+    }
+    throw error(ctx + ": v3 fill_value must not be null (open in lenient mode to read as zeros)");
+  }
+  switch (dt.kind) {
+    case DType::boolean:
+      if (!v.is_boolean()) {
+        throw error(ctx + ": bool fill_value must be true or false");
+      }
+      return detail::scalar_bytes<std::uint8_t>(v.get<bool>() ? 1 : 0);
+    case DType::float16:
+    case DType::float32:
+    case DType::float64:
+      return detail_v3::float_fill(v, dt.kind, dt.itemsize, ctx);
+    case DType::complex64:
+    case DType::complex128: {
+      // v3 core: complex fill_value is a [real, imaginary] two-element array.
+      if (!v.is_array() || v.size() != 2) {
+        throw error(ctx + ": complex fill_value must be a [re, im] array");
+      }
+      const DType component = dt.kind == DType::complex64 ? DType::float32 : DType::float64;
+      const std::uint32_t half = dt.itemsize / 2;
+      Bytes out = detail_v3::float_fill(v[0], component, half, ctx);
+      const Bytes imag = detail_v3::float_fill(v[1], component, half, ctx);
+      out.insert(out.end(), imag.begin(), imag.end());
+      return out;
+    }
+    case DType::raw:
+      return detail_v3::raw_fill(v, dt, ctx);
+    default:
+      if (v.is_number_unsigned()) {
+        return detail::fill_from_uint(v.get<std::uint64_t>(), dt, ctx);
+      }
+      if (v.is_number_integer()) {
+        return detail::fill_from_int(v.get<std::int64_t>(), dt, ctx);
+      }
+      if (v.is_number_float()) {
+        return detail::fill_from_double(v.get<double>(), dt, ctx);
+      }
+      throw error(ctx + ": integer fill_value expected, got " + v.dump());
+  }
+}
+
+namespace detail_v3 {
+
+/// Lowers the v3 codecs member into CodecSpec form, applying documented
+/// read-tolerances for pre-final spellings.
+inline std::vector<CodecSpec> parse_codecs(const json& v, std::size_t rank,
+                                           const std::string& ctx) {
+  if (!v.is_array()) {
+    throw error(ctx + ": 'codecs' must be an array");
+  }
+  std::vector<CodecSpec> out;
+  for (const json& c : v) {
+    CodecSpec spec;
+    if (c.is_string()) {
+      // Pre-final v3 writers emitted bare codec-name strings (read tolerance).
+      spec.name = c.get<std::string>();
+    } else if (c.is_object() && c.contains("name") && c["name"].is_string()) {
+      spec.name = c["name"].get<std::string>();
+      spec.configuration = c.value("configuration", json::object());
+    } else {
+      throw error(ctx + ": each codec must be an object with a 'name'");
+    }
+    if (spec.name == "endian") {
+      // zarr-python 2.x's experimental v3 wrote "endian" for what the final
+      // spec names "bytes" (read tolerance).
+      spec.name = "bytes";
+    }
+    if (spec.name == "transpose" && spec.configuration.value("order", json()).is_string()) {
+      // 2022-draft transpose configs used "C"/"F" strings; the final spec
+      // requires an explicit permutation (read tolerance).
+      const auto order = spec.configuration["order"].get<std::string>();
+      if (order != "C" && order != "F") {
+        std::string msg = ctx;
+        msg += ": transpose order '";
+        msg += order;
+        msg += R"(' is not "C", "F" or an array)";
+        throw error(msg);
+      }
+      json perm = json::array();
+      for (std::size_t d = 0; d < rank; ++d) {
+        perm.push_back(order == "F" ? rank - 1 - d : d);
+      }
+      spec.configuration["order"] = perm;
+    }
+    out.push_back(std::move(spec));
+  }
+  return out;
+}
+
+/// Fills meta.key_encoding / dimension_separator from chunk_key_encoding.
+inline void parse_chunk_key_encoding(const json& cke, ArrayMeta& meta, const std::string& ctx) {
+  if (!cke.is_object() || !cke.contains("name")) {
+    throw error(ctx + ": chunk_key_encoding must be an object with a 'name'");
+  }
+  if (cke["name"] == "default") {
+    meta.key_encoding = ChunkKeyKind::v3_default;
+    meta.dimension_separator = '/';
+  } else if (cke["name"] == "v2") {
+    meta.key_encoding = ChunkKeyKind::v2;
+    meta.dimension_separator = '.';
+  } else {
+    throw error(ctx + ": unknown chunk_key_encoding '" + cke["name"].dump() + "'");
+  }
+  const json config = cke.value("configuration", json::object());
+  const json separator = config.value("separator", json());
+  if (!separator.is_null()) {
+    if (!separator.is_string() || (separator != "/" && separator != ".")) {
+      throw error(ctx + R"(: chunk_key_encoding separator must be "/" or ".")");
+    }
+    meta.dimension_separator = separator.get<std::string>()[0];
+  }
+}
+
+/// Validates and stores the optional dimension_names member.
+inline void parse_dimension_names(const json& j, ArrayMeta& meta, const std::string& ctx) {
+  const auto it = j.find("dimension_names");
+  if (it == j.end()) {
+    return;
+  }
+  if (!it->is_array() || it->size() != meta.shape.size()) {
+    throw error(ctx + ": 'dimension_names' must be an array of rank length");
+  }
+  for (const json& name : *it) {
+    if (!name.is_string() && !name.is_null()) {
+      throw error(ctx + ": dimension names must be strings or null");
+    }
+  }
+  meta.dimension_names = *it;
+}
+
+}  // namespace detail_v3
+
+/// Parses a v3 array zarr.json document into normalized ArrayMeta.
+inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx, bool lenient = false) {
+  if (!j.is_object()) {
+    throw error(ctx + ": expected a JSON object");
+  }
+  if (detail::json_to_uint64(detail_v3::require(j, "zarr_format", ctx), ctx + ": zarr_format") !=
+      3) {
+    throw error(ctx + ": zarr_format must be 3");
+  }
+  if (detail_v3::require(j, "node_type", ctx) != "array") {
+    throw error(ctx + ": node_type must be 'array'");
+  }
+  detail_v3::check_members(
+      j,
+      {"zarr_format", "node_type", "shape", "data_type", "chunk_grid", "chunk_key_encoding",
+       "fill_value", "codecs", "attributes", "dimension_names", "storage_transformers"},
+      ctx, lenient);
+
+  ArrayMeta meta;
+  meta.format = ZarrFormat::v3;
+  meta.shape = detail::parse_extents(detail_v3::require(j, "shape", ctx), "shape", ctx);
+  meta.dtype = parse_data_type(detail_v3::require(j, "data_type", ctx), ctx);
+
+  const json& grid = detail_v3::require(j, "chunk_grid", ctx);
+  if (!grid.is_object() || grid.value("name", "") != std::string("regular")) {
+    throw error(ctx + ": only the 'regular' chunk_grid is supported");
+  }
+  const json& grid_config = detail_v3::require(grid, "configuration", ctx + ": chunk_grid");
+  meta.chunk_shape = detail::parse_extents(
+      detail_v3::require(grid_config, "chunk_shape", ctx + ": chunk_grid"), "chunk_shape", ctx);
+  if (meta.chunk_shape.size() != meta.shape.size()) {
+    throw error(ctx + ": chunk_shape rank " + std::to_string(meta.chunk_shape.size()) +
+                " != shape rank " + std::to_string(meta.shape.size()));
+  }
+  for (const std::uint64_t c : meta.chunk_shape) {
+    if (c == 0) {
+      throw error(ctx + ": chunk extents must be positive");
+    }
+  }
+
+  detail_v3::parse_chunk_key_encoding(detail_v3::require(j, "chunk_key_encoding", ctx), meta, ctx);
+
+  meta.fill = parse_fill(detail_v3::require(j, "fill_value", ctx), meta.dtype, ctx + ": fill_value",
+                         lenient);
+  meta.codecs =
+      detail_v3::parse_codecs(detail_v3::require(j, "codecs", ctx), meta.shape.size(), ctx);
+
+  meta.attributes = j.value("attributes", json::object());
+  if (!meta.attributes.is_object()) {
+    throw error(ctx + ": 'attributes' must be an object");
+  }
+  detail_v3::parse_dimension_names(j, meta, ctx);
+
+  const auto st_it = j.find("storage_transformers");
+  if (st_it != j.end() && !(st_it->is_array() && st_it->empty())) {
+    throw error(ctx + ": storage_transformers are not supported");
+  }
+  return meta;
+}
+
+/// Result of parsing a v3 group zarr.json.
+struct GroupMeta {
+  json attributes = json::object();
+  /// Inline consolidated metadata (node path -> zarr.json document), per the
+  /// zarr-python convention (zarr-specs #309 — a convention, not yet an
+  /// accepted spec); std::nullopt when absent.
+  std::optional<json> consolidated;
+};
+
+/// Parses a v3 group zarr.json document.
+inline GroupMeta parse_group_meta(const json& j, const std::string& ctx, bool lenient = false) {
+  if (!j.is_object()) {
+    throw error(ctx + ": expected a JSON object");
+  }
+  if (detail::json_to_uint64(detail_v3::require(j, "zarr_format", ctx), ctx + ": zarr_format") !=
+      3) {
+    throw error(ctx + ": zarr_format must be 3");
+  }
+  if (detail_v3::require(j, "node_type", ctx) != "group") {
+    throw error(ctx + ": node_type must be 'group'");
+  }
+  detail_v3::check_members(j, {"zarr_format", "node_type", "attributes", "consolidated_metadata"},
+                           ctx, lenient);
+
+  GroupMeta meta;
+  meta.attributes = j.value("attributes", json::object());
+  const auto cons_it = j.find("consolidated_metadata");
+  if (cons_it != j.end() && cons_it->is_object() && cons_it->contains("metadata") &&
+      (*cons_it)["metadata"].is_object()) {
+    meta.consolidated = (*cons_it)["metadata"];
+  }
+  return meta;
+}
+
+/// v3 chunk key relative to the array (v3 core "chunk key encoding").
+inline std::string chunk_key(const std::vector<std::uint64_t>& index, char separator) {
+  std::string key = "c";  // rank 0: the key is exactly "c"
+  for (const std::uint64_t i : index) {
+    key += separator;
+    key += std::to_string(i);
+  }
+  return key;
+}
+
+}  // namespace zarr::v3
+
+#endif  // LIBZARR_V3_HPP

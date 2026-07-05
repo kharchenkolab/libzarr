@@ -13,6 +13,7 @@
 #include "libzarr/store.hpp"
 #include "libzarr/types.hpp"
 #include "libzarr/v2.hpp"
+#include "libzarr/v3.hpp"
 
 /// \file group.hpp
 /// The Group API: hierarchy create/open/traverse. Groups are value-semantics
@@ -49,18 +50,47 @@ class Group {
     return {std::move(store), path, json::object(), nullptr};
   }
 
-  /// Opens the group at `path`. At the root, consolidated metadata is used
-  /// when present and shared with every node opened through this group.
-  static Group open(std::shared_ptr<Store> store, const std::string& path = "") {
+  /// Opens the group at `path`, probing v3 (zarr.json) first, then v2.
+  /// Consolidated metadata — v2 .zmetadata at the store root, or the v3
+  /// inline convention — is used when present and shared with every node
+  /// opened through this group.
+  static Group open(std::shared_ptr<Store> store, const std::string& path = "",
+                    OpenOptions options = {}) {
     if (!store) {
       throw error("Group::open: null store");
     }
     detail::validate_path(path);
+
+    // v3 probe.
+    const std::string v3_key = v3::meta_key(path);
+    if (const auto bytes = store->read(v3_key)) {
+      const json doc = v2::parse_json(*bytes, v3_key);
+      if (doc.is_object() && doc.value("node_type", "") == std::string("array")) {
+        throw error("'" + path + "' is an array, not a group");
+      }
+      v3::GroupMeta meta = v3::parse_group_meta(doc, v3_key, options.lenient);
+      std::shared_ptr<const json> consolidated;
+      if (meta.consolidated) {
+        // The inline map is node-path -> document; rekey by store key so
+        // child opens look up uniformly for both formats.
+        json by_key = json::object();
+        for (const auto& item : meta.consolidated->items()) {
+          const std::string child = path.empty() ? item.key() : path + "/" + item.key();
+          by_key[v3::meta_key(child)] = item.value();
+        }
+        by_key[v3_key] = doc;
+        consolidated = std::make_shared<const json>(std::move(by_key));
+      }
+      return {std::move(store),        path,           std::move(meta.attributes),
+              std::move(consolidated), ZarrFormat::v3, options};
+    }
+
+    // v2 path, reading through .zmetadata at the store root when present.
     std::shared_ptr<const json> consolidated;
     if (const auto c = v2::read_consolidated(*store)) {
       consolidated = std::make_shared<const json>(*c);
     }
-    return open_with(std::move(store), path, std::move(consolidated));
+    return open_with(std::move(store), path, std::move(consolidated), options);
   }
 
   /// Node path within the store ("" = root).
@@ -71,6 +101,7 @@ class Group {
 
   /// Replaces the user attributes and persists them.
   void set_attributes(json attributes) {
+    check_writable();
     attributes_ = std::move(attributes);
     const std::string key = v2::meta_key(path_, v2::kAttrsSuffix);
     if (attributes_.empty()) {
@@ -82,11 +113,13 @@ class Group {
 
   /// Creates a child (possibly nested, e.g. "a/b") group.
   Group create_group(const std::string& name) {
+    check_writable();
     return create(store_, child_path(name), ZarrFormat::v2);
   }
 
   /// Creates a child (possibly nested) array, writing ancestor groups first.
   Array create_array(const std::string& name, const ArraySpec& spec) {
+    check_writable();
     const std::string target = child_path(name);
     const std::size_t slash = target.rfind('/');
     if (slash != std::string::npos) {
@@ -97,12 +130,16 @@ class Group {
 
   /// Opens a child (possibly nested) group.
   [[nodiscard]] Group open_group(const std::string& name) const {
-    return open_with(store_, child_path(name), consolidated_);
+    const std::string target = child_path(name);
+    if (format_ == ZarrFormat::v3) {
+      return open_v3_child_group(target);
+    }
+    return open_with(store_, target, consolidated_, options_);
   }
 
   /// Opens a child (possibly nested) array.
   [[nodiscard]] Array open_array(const std::string& name) const {
-    return Array::open(store_, child_path(name), consolidated_);
+    return Array::open(store_, child_path(name), options_, consolidated_);
   }
 
   /// Lists immediate children, classified by their metadata documents.
@@ -115,6 +152,14 @@ class Group {
         out.arrays.push_back(child);
       } else if (store_->exists(child_full + "/" + v2::kGroupSuffix)) {
         out.groups.push_back(child);
+      } else if (const auto doc = read_doc(v3::meta_key(child_full))) {
+        // v3: the node kind lives inside zarr.json.
+        const std::string node_type = doc->is_object() ? doc->value("node_type", "") : "";
+        if (node_type == "array") {
+          out.arrays.push_back(child);
+        } else if (node_type == "group") {
+          out.groups.push_back(child);
+        }
       }
       // Other directories are not Zarr nodes; ignore them.
     }
@@ -123,14 +168,52 @@ class Group {
 
  private:
   Group(std::shared_ptr<Store> store, std::string path, json attributes,
-        std::shared_ptr<const json> consolidated)
+        std::shared_ptr<const json> consolidated, ZarrFormat format = ZarrFormat::v2,
+        OpenOptions options = {})
       : store_(std::move(store)),
         path_(std::move(path)),
         attributes_(std::move(attributes)),
-        consolidated_(std::move(consolidated)) {}
+        consolidated_(std::move(consolidated)),
+        format_(format),
+        options_(options) {}
+
+  void check_writable() const {
+    if (format_ == ZarrFormat::v3) {
+      throw error("writing v3 metadata arrives in a later phase");
+    }
+  }
+
+  [[nodiscard]] std::optional<json> read_doc(const std::string& key) const {
+    if (consolidated_) {
+      const auto it = consolidated_->find(key);
+      if (it == consolidated_->end()) {
+        return std::nullopt;
+      }
+      return *it;
+    }
+    const auto bytes = store_->read(key);
+    if (!bytes) {
+      return std::nullopt;
+    }
+    return v2::parse_json(*bytes, key);
+  }
+
+  [[nodiscard]] Group open_v3_child_group(const std::string& target) const {
+    const std::string key = v3::meta_key(target);
+    const auto doc = read_doc(key);
+    if (!doc) {
+      throw error("no group at '" + target + "' (" + key + " not found)");
+    }
+    if (doc->is_object() && doc->value("node_type", "") == std::string("array")) {
+      throw error("'" + target + "' is an array, not a group");
+    }
+    v3::GroupMeta meta = v3::parse_group_meta(*doc, key, options_.lenient);
+    // Children of this group keep reading through the root's consolidated map.
+    return {store_, target, std::move(meta.attributes), consolidated_, ZarrFormat::v3, options_};
+  }
 
   static Group open_with(std::shared_ptr<Store> store, const std::string& path,
-                         std::shared_ptr<const json> consolidated) {
+                         std::shared_ptr<const json> consolidated, OpenOptions options) {
     const auto read_doc = [&](const std::string& key) -> std::optional<json> {
       if (consolidated) {
         const auto it = consolidated->find(key);
@@ -149,20 +232,19 @@ class Group {
     const std::string group_key = v2::meta_key(path, v2::kGroupSuffix);
     const auto doc = read_doc(group_key);
     if (!doc) {
-      if (store->exists(v2::meta_key(path, "zarr.json"))) {
-        throw error("'" + path + "' is a Zarr v3 node; v3 support arrives in a later phase");
-      }
       if (store->exists(v2::meta_key(path, v2::kArraySuffix))) {
         throw error("'" + path + "' is an array, not a group");
       }
-      throw error("no group at '" + path + "' (" + group_key + " not found)");
+      throw error("no group at '" + path + "' (neither " + v3::meta_key(path) + " nor " +
+                  group_key + " found)");
     }
     v2::check_group_meta(*doc, group_key);
     json attributes = json::object();
     if (const auto attrs = read_doc(v2::meta_key(path, v2::kAttrsSuffix))) {
       attributes = *attrs;
     }
-    return {std::move(store), path, std::move(attributes), std::move(consolidated)};
+    return {std::move(store),        path,           std::move(attributes),
+            std::move(consolidated), ZarrFormat::v2, options};
   }
 
   /// Writes .zgroup at `path` and every missing ancestor.
@@ -202,6 +284,8 @@ class Group {
   std::string path_;
   json attributes_;
   std::shared_ptr<const json> consolidated_;
+  ZarrFormat format_ = ZarrFormat::v2;
+  OpenOptions options_;
 };
 
 }  // namespace zarr

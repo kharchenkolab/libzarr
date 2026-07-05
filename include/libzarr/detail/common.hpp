@@ -4,6 +4,7 @@
 #define LIBZARR_DETAIL_COMMON_HPP
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -70,6 +71,88 @@ inline bool starts_with(std::string_view text, std::string_view prefix) {
 inline bool ends_with(std::string_view text, std::string_view suffix) {
   return text.size() >= suffix.size() &&
          text.compare(text.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+/// CRC-32C (Castagnoli, reflected poly 0x82F63B78, per RFC 3720 §B.4) — the
+/// checksum required by the v3 crc32c codec and the sharding index. This is
+/// NOT the zip/zlib CRC-32 (IEEE), which uses a different polynomial.
+inline std::uint32_t crc32c(const std::uint8_t* data, std::size_t size) {
+  static const std::array<std::uint32_t, 256> table = [] {
+    std::array<std::uint32_t, 256> t{};
+    for (std::uint32_t i = 0; i < 256; ++i) {
+      std::uint32_t c = i;
+      for (int k = 0; k < 8; ++k) {
+        c = ((c & 1U) != 0) ? 0x82F63B78U ^ (c >> 1U) : c >> 1U;
+      }
+      t[i] = c;
+    }
+    return t;
+  }();
+  std::uint32_t c = 0xFFFFFFFFU;
+  for (std::size_t i = 0; i < size; ++i) {
+    c = table[(c ^ data[i]) & 0xFFU] ^ (c >> 8U);
+  }
+  return c ^ 0xFFFFFFFFU;
+}
+
+// ---- IEEE 754 binary16 (float16 has no native C++17 type) ------------------
+
+/// double -> binary16 bits, round-to-nearest-even; overflows go to infinity.
+inline std::uint16_t double_to_half_bits(double value) {
+  const auto f = static_cast<float>(value);
+  std::uint32_t bits = 0;
+  std::memcpy(&bits, &f, 4);
+  const std::uint32_t sign = (bits >> 16U) & 0x8000U;
+  const std::uint32_t mantissa = bits & 0x007FFFFFU;
+  const std::int32_t exponent = static_cast<std::int32_t>((bits >> 23U) & 0xFFU) - 127 + 15;
+  if (exponent >= 0x1F) {  // overflow or inf/nan
+    if (((bits >> 23U) & 0xFFU) == 0xFF && mantissa != 0) {
+      return static_cast<std::uint16_t>(sign | 0x7E00U);  // pinned quiet NaN
+    }
+    return static_cast<std::uint16_t>(sign | 0x7C00U);  // infinity
+  }
+  if (exponent <= 0) {  // subnormal or zero
+    if (exponent < -10) {
+      return static_cast<std::uint16_t>(sign);
+    }
+    const std::uint32_t sub = (mantissa | 0x00800000U) >> static_cast<std::uint32_t>(14 - exponent);
+    const std::uint32_t rounded =
+        sub + ((sub & 0x1FFFU) > (0x1000U - ((sub >> 13U) & 1U)) ? 0x2000U : 0U);
+    return static_cast<std::uint16_t>(sign | (rounded >> 13U));
+  }
+  std::uint32_t half = sign | (static_cast<std::uint32_t>(exponent) << 10U) | (mantissa >> 13U);
+  // round to nearest even on the truncated 13 bits
+  const std::uint32_t rest = mantissa & 0x1FFFU;
+  if (rest > 0x1000U || (rest == 0x1000U && (half & 1U) != 0)) {
+    ++half;  // may carry into the exponent, which correctly yields infinity
+  }
+  return static_cast<std::uint16_t>(half);
+}
+
+/// binary16 bits -> double (exact).
+inline double half_bits_to_double(std::uint16_t half) {
+  const std::uint32_t sign = (static_cast<std::uint32_t>(half) & 0x8000U) << 16U;
+  const std::uint32_t exponent = (static_cast<std::uint32_t>(half) >> 10U) & 0x1FU;
+  const std::uint32_t mantissa = static_cast<std::uint32_t>(half) & 0x3FFU;
+  std::uint32_t bits = 0;
+  if (exponent == 0x1F) {
+    bits = sign | 0x7F800000U | (mantissa << 13U);
+  } else if (exponent != 0) {
+    bits = sign | ((exponent - 15 + 127) << 23U) | (mantissa << 13U);
+  } else if (mantissa != 0) {  // subnormal: normalize
+    std::uint32_t m = mantissa;
+    std::int32_t e = -1;
+    while ((m & 0x400U) == 0) {
+      m <<= 1U;
+      ++e;
+    }
+    bits = sign | (static_cast<std::uint32_t>(112 - e) << 23U) | ((m & 0x3FFU) << 13U);
+  } else {
+    bits = sign;  // zero
+  }
+  float f = 0;
+  std::memcpy(&f, &bits, 4);
+  return static_cast<double>(f);
 }
 
 // ---- base64 (RFC 4648, with padding) — v2 fill_value for raw dtypes -------

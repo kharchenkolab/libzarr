@@ -45,6 +45,14 @@ inline CodecSpec gzip(int level = 5) { return {"gzip", {{"level", level}}}; }
 /// Convenience factory: zlib (RFC 1950) at `level` (0-9). Zarr v2 only.
 inline CodecSpec zlib(int level = 5) { return {"zlib", {{"level", level}}}; }
 
+/// Chunk-key scheme. v2: indices joined by a separator ('.' default), rank 0
+/// is "0". v3 "default": "c" prefix + separator-joined indices ('/' default),
+/// rank 0 is "c". v3's "v2" encoding maps onto `v2`.
+enum class ChunkKeyKind : std::uint8_t {
+  v2,
+  v3_default,
+};
+
 /// Normalized array metadata, shared by every format version. Version quirks
 /// are resolved at parse time; everything downstream (codecs, chunk I/O)
 /// consumes only this.
@@ -60,8 +68,12 @@ struct ArrayMeta {
   /// Fill value as one element in native byte order; std::nullopt when the
   /// source metadata had fill_value:null (legal in v2), which reads as zeros.
   std::optional<Bytes> fill;
-  /// v2 chunk-key separator ('.' or '/').
+  /// Chunk-key scheme (see ChunkKeyKind).
+  ChunkKeyKind key_encoding = ChunkKeyKind::v2;
+  /// Chunk-key separator ('.' or '/').
   char dimension_separator = '.';
+  /// v3 dimension_names member, preserved verbatim (null when absent).
+  json dimension_names;
   /// Codec chain in v3 order: array->array*, one array->bytes ("bytes"),
   /// then bytes->bytes*.
   std::vector<CodecSpec> codecs;
@@ -84,6 +96,14 @@ struct ArrayMeta {
     }
     return grid;
   }
+};
+
+/// Options for opening arrays and groups.
+struct OpenOptions {
+  /// v3 core requires rejecting unrecognized metadata members and null fill
+  /// values; lenient mode (opt-in) ignores/defaults them instead. No effect
+  /// on v2, which is read tolerantly by design.
+  bool lenient = false;
 };
 
 /// Serializes JSON in libzarr's canonical form: 4-space indent, sorted keys
@@ -119,15 +139,46 @@ Bytes scalar_bytes(T value) {
   return out;
 }
 
+/// Parses a JSON array of non-negative integers (shapes, chunk shapes).
+inline std::vector<std::uint64_t> parse_extents(const json& v, const char* name,
+                                                const std::string& ctx) {
+  if (!v.is_array()) {
+    throw error(ctx + ": '" + name + "' must be an array");
+  }
+  std::vector<std::uint64_t> out;
+  out.reserve(v.size());
+  for (const json& e : v) {
+    out.push_back(json_to_uint64(e, ctx + ": " + name));
+  }
+  return out;
+}
+
 /// Pinned quiet-NaN bit patterns: the specs' "NaN" form carries no payload,
-/// so we fix one for byte-stable output (f32 0x7fc00000, f64
+/// so we fix one for byte-stable output (f16 0x7e00, f32 0x7fc00000, f64
 /// 0x7ff8000000000000).
 inline Bytes quiet_nan_bytes(DType kind) {
+  if (kind == DType::float16) {
+    return scalar_bytes<std::uint16_t>(0x7e00U);
+  }
   if (kind == DType::float32) {
     return scalar_bytes<std::uint32_t>(0x7fc00000U);
   }
   assert(kind == DType::float64);
   return scalar_bytes<std::uint64_t>(0x7ff8000000000000ULL);
+}
+
+/// +/- infinity, encoded per float kind.
+inline Bytes infinity_bytes(DType kind, bool negative) {
+  if (kind == DType::float16) {
+    return scalar_bytes<std::uint16_t>(negative ? 0xfc00U : 0x7c00U);
+  }
+  if (kind == DType::float32) {
+    const float inf = std::numeric_limits<float>::infinity();
+    return scalar_bytes(negative ? -inf : inf);
+  }
+  assert(kind == DType::float64);
+  const double inf = std::numeric_limits<double>::infinity();
+  return scalar_bytes(negative ? -inf : inf);
 }
 
 inline Bytes fill_from_double(double value, DataType dt, const std::string& ctx);
@@ -205,6 +256,8 @@ inline Bytes fill_from_uint(std::uint64_t value, DataType dt, const std::string&
 
 inline Bytes fill_from_double(double value, DataType dt, const std::string& ctx) {
   switch (dt.kind) {
+    case DType::float16:
+      return scalar_bytes<std::uint16_t>(double_to_half_bits(value));
     case DType::float32:
       return scalar_bytes<float>(static_cast<float>(value));
     case DType::float64:
@@ -253,10 +306,17 @@ inline json fill_to_json(const std::optional<Bytes>& fill, DataType dt) {
       return load(std::uint32_t{});
     case DType::uint64:
       return load(std::uint64_t{});
+    case DType::float16:
     case DType::float32:
     case DType::float64: {
-      const double v =
-          dt.kind == DType::float32 ? static_cast<double>(load(float{})) : load(double{});
+      double v = 0;
+      if (dt.kind == DType::float16) {
+        v = half_bits_to_double(load(std::uint16_t{}));
+      } else if (dt.kind == DType::float32) {
+        v = static_cast<double>(load(float{}));
+      } else {
+        v = load(double{});
+      }
       if (std::isnan(v)) {
         return "NaN";
       }

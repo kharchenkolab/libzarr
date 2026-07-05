@@ -7,6 +7,15 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Zarr v3 read** (non-sharded): `zarr.json` parsing with spec-mandated strictness plus an
+  opt-in lenient mode; all core dtypes including float16, complex and `r<bits>`; every
+  fill_value form (`0x`/`0b` bit patterns, complex pairs); both chunk-key encodings; codecs
+  `bytes`, `transpose`, `gzip`, `blosc` (new `LIBZARR_HAS_BLOSC` flag), `crc32c` (own
+  Castagnoli implementation); inline consolidated metadata; open probe order zarr.json-first;
+  legacy accepts for pre-final v3 spellings. Conformance-tested against the zarr-python 3.x
+  v3 fixture matrix.
+- **Fuzz harness #1** (metadata bytes → ArrayMeta) with a seeded corpus: libFuzzer target in
+  CI plus a compiler-agnostic corpus replay wired into ctest.
 - **Single-file ZIP archives** (STORED entries only, ZIP64-aware): `zarr::ZipReader` — a
   read-only Store view over an archive in any other Store, all access through byte-range
   reads — and `zarr::zip_pack` (deterministic byte-for-byte). Conformance-tested against

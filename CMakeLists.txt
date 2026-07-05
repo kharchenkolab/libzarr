@@ -33,8 +33,9 @@ if(LIBZARR_WITH_BLOSC)
   if(NOT LIBZARR_BLOSC_LIBRARY OR NOT LIBZARR_BLOSC_INCLUDE_DIR)
     message(FATAL_ERROR "LIBZARR_WITH_BLOSC=ON but c-blosc was not found")
   endif()
-  target_link_libraries(libzarr INTERFACE ${LIBZARR_BLOSC_LIBRARY})
-  target_include_directories(libzarr INTERFACE ${LIBZARR_BLOSC_INCLUDE_DIR})
+  find_package(Threads REQUIRED) # c-blosc itself uses pthreads
+  target_link_libraries(libzarr INTERFACE ${LIBZARR_BLOSC_LIBRARY} Threads::Threads)
+  target_include_directories(libzarr SYSTEM INTERFACE ${LIBZARR_BLOSC_INCLUDE_DIR})
   target_compile_definitions(libzarr INTERFACE LIBZARR_HAS_BLOSC=1)
 endif()
 
@@ -71,6 +72,7 @@ if(LIBZARR_BUILD_TESTS)
     tests/test_codecs.cpp
     tests/test_store.cpp
     tests/test_v2_metadata.cpp
+    tests/test_v3.cpp
     tests/test_zip.cpp)
   if(NOT EMSCRIPTEN)
     # The filesystem adapter is exactly what WASM builds omit.
@@ -98,6 +100,24 @@ if(LIBZARR_BUILD_TESTS)
     endif()
   endif()
 
+  # Fuzz harnesses. The standalone replay build runs the checked-in corpus
+  # under any compiler (and the sanitizers, when enabled); the libFuzzer
+  # build (clang + LIBZARR_BUILD_FUZZERS) does the real fuzzing in CI.
+  if(NOT EMSCRIPTEN)
+    add_executable(fuzz_metadata_replay fuzz/fuzz_metadata.cpp)
+    target_compile_definitions(fuzz_metadata_replay PRIVATE LIBZARR_FUZZ_STANDALONE=1)
+    target_link_libraries(fuzz_metadata_replay PRIVATE libzarr::libzarr libzarr_dev_flags)
+    file(GLOB libzarr_fuzz_corpus ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus/metadata/*)
+    add_test(NAME fuzz_metadata_replay COMMAND fuzz_metadata_replay ${libzarr_fuzz_corpus})
+  endif()
+  option(LIBZARR_BUILD_FUZZERS "Build libFuzzer harnesses (requires clang)" OFF)
+  if(LIBZARR_BUILD_FUZZERS)
+    add_executable(fuzz_metadata fuzz/fuzz_metadata.cpp)
+    target_link_libraries(fuzz_metadata PRIVATE libzarr::libzarr)
+    target_compile_options(fuzz_metadata PRIVATE -fsanitize=fuzzer,address,undefined -g)
+    target_link_options(fuzz_metadata PRIVATE -fsanitize=fuzzer,address,undefined)
+  endif()
+
   # Examples are compiled AND run: they are the machine-checked documentation.
   set(LIBZARR_EXAMPLES quickstart)
   if(LIBZARR_WITH_ZLIB)
@@ -123,6 +143,9 @@ if(LIBZARR_BUILD_TESTS)
     endif()
     if(NOT LIBZARR_WITH_ZLIB AND header_rel MATCHES "codecs_gzip")
       continue()  # requires zlib; the header #errors without LIBZARR_HAS_ZLIB
+    endif()
+    if(NOT LIBZARR_WITH_BLOSC AND header_rel MATCHES "codecs_blosc")
+      continue()  # requires c-blosc; the header #errors without LIBZARR_HAS_BLOSC
     endif()
     string(MAKE_C_IDENTIFIER ${header_rel} header_id)
     set(source ${CMAKE_CURRENT_BINARY_DIR}/standalone/${header_id}.cpp)
