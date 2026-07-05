@@ -99,8 +99,9 @@ What we read (accept) and write (emit) is documented feature-by-feature in
 [docs/SPEC.md](docs/SPEC.md), each claim citing the test that proves it; architecture
 rationale lives in [docs/DESIGN.md](docs/DESIGN.md). Interoperability is checked against
 stores written by other implementations (zarr-python, TensorStore, GDAL, netCDF/NCZarr,
-omero-zarr) — see the [wild-fixture suite](tests/wild/README.md) and the
-[public-store survey](tests/wild/SURVEY.md).
+omero-zarr) — validated locally against other implementations (TensorStore, GDAL, netCDF/NCZarr,
+omero-zarr) and live public stores — see
+[tests/wild/](https://github.com/kharchenkolab/libzarr/tree/main/tests/wild).
 
 ## Development
 
