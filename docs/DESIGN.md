@@ -39,25 +39,24 @@ metadata is *lowered* into this model at parse time (compressor → one bytes→
 everything downstream is version-blind. No-op stages (identity transpose, native-endian
 bytes) are elided at resolve time.
 
-## Sharding: a Store adapter, not a codec (go/no-go review, 2026-07)
+## Sharding: a Store adapter, not a codec
 
-**Decision: GO.** Shipped in phase 4; conformance against zarr-python is green in both
-directions, the Emscripten build is green, and the memory bounds below are acceptable for
-the library's scope.
+Byte ranges into a shard must map 1:1 onto stored bytes — that is the whole point of the
+format — so `sharding_indexed` is modeled as an I/O adapter, not as a stage in the codec
+pipeline. Metadata parsing lowers it into `ArrayMeta::shard_levels`, and `Array` wraps the
+store in a `ShardStore` adapter per level: a shard is simply the outer chunk's stored
+object, and the adapter maps inner-chunk keys onto byte ranges of it via the shard index.
+Consequences:
 
-`sharding_indexed` is *not* executed inside the codec pipeline. Metadata parsing lowers it
-into `ArrayMeta::shard_levels`, and `Array` wraps the store in a `ShardStore` adapter per
-level: a shard is simply the outer chunk's stored object, and the adapter maps inner-chunk
-keys onto byte ranges of it via the shard index. Consequences:
-
-- The array machinery is completely unaware of sharding; chunk I/O, byte-range sub-chunk
-  reads, and fill handling work unchanged at inner-chunk granularity.
+- The array machinery is unaware of sharding; chunk I/O, byte-range sub-chunk reads, and
+  fill handling work unchanged at inner-chunk granularity.
 - **Nested sharding falls out for free**: `ShardStore` wrapping `ShardStore`, with level-N
   entry reads becoming level-N−1 range reads.
-- The feasibility spike (hand-decoding a zarr-python shard with nothing but offset math)
-  validated the index layout before any abstraction was built: trailing index of
-  `16·n + 4(crc32c)` bytes, `[offset, nbytes]` uint64 LE pairs in C order, offsets relative
-  to the shard start, `2^64−1` sentinels for missing chunks.
+
+The index is a `16·n + 4(crc32c)`-byte block, `n` = inner chunks per shard: `[offset,
+nbytes]` uint64 LE pairs in C order, offsets relative to the shard start, `2^64−1` sentinels
+marking missing chunks. It sits at the end of the shard, or at the start for
+`index_location: start`.
 
 **Read path costs.** One suffix (or prefix, for `index_location: start`) range request per
 shard for the index — cached in a 16-entry LRU — plus one range request per inner chunk
@@ -70,10 +69,11 @@ chunks of one shard plus its index — i.e. one shard object — and transiently
 seeding from an existing shard. The assembly flushes when writes move to another shard and
 at the end of every `Array` write operation. All-fill shards are erased rather than stored.
 
-**Known cost, deliberately accepted.** Whole-array writes iterate inner chunks in C order,
-so a shard spanning `r` rows of inner chunks is assembled and rewritten `r` times.
-Correctness is unaffected (RMW). A shard-major write order would remove the rewrites; do it
-if profiling ever makes it matter.
+**Write amplification.** Whole-array writes iterate inner chunks in C order, so a shard
+spanning `r` rows of inner chunks is assembled and rewritten `r` times. Read-modify-write
+keeps this correct; a shard-major write order (assemble each shard once) would eliminate the
+rewrites. The amplification is measurable on uncompressed sharded writes and negligible
+under any real compressor (see the baseline below).
 
 **Enforcement.** `index_codecs` are restricted to `bytes` (+ optional `crc32c`) — the spec
 requires a fixed-size encoded index. Codecs wrapped *around* a shard (outer transpose,
@@ -83,8 +83,9 @@ whole-shard compression) are rejected on read and write: byte ranges into the sh
 ## Performance baseline
 
 `bench/bench.cpp` (build Release, run manually), 64 MiB float32 array, chunks 256×256,
-shards 1024×1024 where sharded, single-threaded over a MemoryStore. Measured 2026-07-05 at
-v0.2.0 on a Xeon E5-2697 v3 @ 2.60 GHz (zlib 1.2.11, libzstd 1.4.4, c-blosc 1.21.6):
+shards 1024×1024 where sharded, single-threaded over a MemoryStore. Representative figures
+on a Xeon E5-2697 v3 @ 2.60 GHz (zlib 1.2.11, libzstd 1.4.4, c-blosc 1.21.6); rerun
+`bench/bench.cpp` for your own hardware:
 
 | case           | write MiB/s | read MiB/s | stored/raw |
 |----------------|------------:|-----------:|-----------:|
@@ -98,17 +99,16 @@ v0.2.0 on a Xeon E5-2697 v3 @ 2.60 GHz (zlib 1.2.11, libzstd 1.4.4, c-blosc 1.21
 | sharded zstd-0 |          70 |        342 |       0.64 |
 
 Reading of the numbers: raw is memcpy-bound; compressed cases are codec-bound (the
-uncompressed `raw` row is the pipeline-overhead ceiling). The `crc32c` row uses the SSE4.2
-CRC instruction (`detail::crc32c` dispatches to it at run time, ~4.5–5.6× the table
-implementation it replaced — 325→1435 write, 357→2018 read); CRC is no longer the
-bottleneck there, the row is now pipeline/memcpy-bound like `raw`. The sharded-raw gap vs
-raw (~5.7× write, ~4× read) is the remaining known cost: the C-order write path reassembles
-each shard once per row of inner chunks (4× here), and each inner-chunk access pays key
-formatting/parsing plus an index lookup. It barely moved with the faster CRC (the shard
-index was never its bottleneck), and it disappears entirely under a real compressor (zstd-0
-sharded ≈ unsharded — both codec-bound). Remaining optimization, if a workload ever needs
-it: shard-major write ordering to assemble each shard once, plus cheaper chunk-key handling
-in `ShardStore::locate`.
+uncompressed `raw` row is the pipeline-overhead ceiling). The `crc32c` row is not
+CRC-bound — `detail::crc32c` dispatches at run time to the SSE4.2 CRC instruction (with a
+portable table fallback off x86), so the row is pipeline/memcpy-bound like `raw`. The
+sharded-raw gap vs raw (~5.7× write, ~4× read) has two sources: the C-order write path
+reassembles each shard once per row of inner chunks (4× here, see write amplification
+above), and each inner-chunk access pays key formatting/parsing plus an index lookup. The
+shard index checksum is a negligible fraction of it, and the whole gap disappears under a
+real compressor (zstd-0 sharded ≈ unsharded — both codec-bound). The optimizations that
+would close it are shard-major write ordering and cheaper chunk-key handling in
+`ShardStore::locate`.
 
 ## Consolidated metadata
 
