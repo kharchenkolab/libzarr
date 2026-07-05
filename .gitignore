@@ -1,5 +1,5 @@
 # build artifacts (any local build directory)
-/build/
+/build*/
 /bench-build/
 /*-build/
 *.o
