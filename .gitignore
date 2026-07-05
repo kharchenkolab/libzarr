@@ -1,0 +1,12 @@
+# build artifacts
+/build/
+*.o
+*.a
+*.so
+*.wasm
+*.js.mem
+# emscripten
+/em-build/
+# editor/OS
+.DS_Store
+*.swp
