@@ -31,6 +31,12 @@ All notable changes to libzarr are documented here. The format follows
   conformance harness) and foreign-writer/public-store interop is validated locally via
   `tests/wild/` and `tools/`. Format quirks stay pinned by synthetic unit tests.
 
+## [Unreleased]
+
+### Added
+- **Published API documentation** at <https://kharchenkolab.github.io/libzarr/> (Doxygen,
+  auto-deployed to GitHub Pages on every push to main).
+
 ## [0.2.0] - 2026-07-05
 
 Stores written with zarr-python's out-of-the-box settings are now fully supported,

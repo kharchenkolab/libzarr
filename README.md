@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/kharchenkolab/libzarr/actions/workflows/ci.yml/badge.svg)](https://github.com/kharchenkolab/libzarr/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![docs](https://img.shields.io/badge/docs-API-blue.svg)](https://kharchenkolab.github.io/libzarr/)
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-informational.svg)
 ![header-only](https://img.shields.io/badge/header--only-yes-success.svg)
 
@@ -102,6 +103,11 @@ stores written by other implementations (zarr-python, TensorStore, GDAL, netCDF/
 omero-zarr) — validated locally against other implementations (TensorStore, GDAL, netCDF/NCZarr,
 omero-zarr) and live public stores — see
 [tests/wild/](https://github.com/kharchenkolab/libzarr/tree/main/tests/wild).
+
+## Documentation
+
+Rendered API reference: **<https://kharchenkolab.github.io/libzarr/>** (Doxygen, built from
+the headers on every push). Task-oriented recipes are in [SKILL.md](SKILL.md).
 
 ## Development
 
