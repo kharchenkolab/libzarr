@@ -2,7 +2,7 @@
 # symbols are errors (docs are machine-checked or they don't exist).
 PROJECT_NAME           = libzarr
 PROJECT_BRIEF          = "Header-only C++17 Zarr v2/v3, WASM-compatible"
-INPUT                  = include/libzarr README.md docs/SPEC.md docs/DESIGN.md
+INPUT                  = include/libzarr README.md SKILL.md docs/SPEC.md docs/DESIGN.md
 USE_MDFILE_AS_MAINPAGE = README.md
 RECURSIVE              = YES
 EXCLUDE_PATTERNS       = */detail/*
@@ -18,3 +18,8 @@ MACRO_EXPANSION        = YES
 EXTRACT_ALL            = NO
 HIDE_UNDOC_MEMBERS     = NO
 EXCLUDE_SYMBOLS        = *::detail *::detail_* detail detail_*
+# No graphviz dependency: never invoke dot, even where newer doxygen would.
+HAVE_DOT               = NO
+CLASS_GRAPH            = NO
+INCLUDE_GRAPH          = NO
+INCLUDED_BY_GRAPH      = NO
