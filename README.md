@@ -1,5 +1,10 @@
 # libzarr
 
+[![CI](https://github.com/kharchenkolab/libzarr/actions/workflows/ci.yml/badge.svg)](https://github.com/kharchenkolab/libzarr/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-informational.svg)
+![header-only](https://img.shields.io/badge/header--only-yes-success.svg)
+
 A small, dependency-light, **header-only C++17** library for reading and writing the
 [Zarr](https://zarr.dev) array storage format — **v2 and v3**.
 

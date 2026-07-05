@@ -112,6 +112,16 @@ if(LIBZARR_BUILD_TESTS)
     endif()
   endif()
 
+  # Wild fixtures: stores written by foreign implementations (TensorStore,
+  # omero-zarr), verified against zarr-python-computed manifests. They use
+  # blosc/zstd/gzip, so all codec flags must be on.
+  if(NOT EMSCRIPTEN AND LIBZARR_WITH_ZLIB AND LIBZARR_WITH_BLOSC AND LIBZARR_WITH_ZSTD)
+    foreach(wild tensorstore ome_zarr)
+      add_test(NAME wild_${wild}
+        COMMAND conformance_tool verify-manifest ${CMAKE_CURRENT_SOURCE_DIR}/tests/wild/${wild})
+    endforeach()
+  endif()
+
   # Fuzz harnesses. The standalone replay build runs the checked-in corpus
   # under any compiler (and the sanitizers, when enabled); the libFuzzer
   # build (clang + LIBZARR_BUILD_FUZZERS) does the real fuzzing in CI.

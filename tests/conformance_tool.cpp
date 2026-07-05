@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -321,6 +322,40 @@ int build_fixtures(const std::shared_ptr<zarr::Store>& store) {
   return 0;
 }
 
+// Verifies a "wild" fixture store (written by a foreign implementation)
+// against its manifest.json: the crc32c + byte count of each fully decoded
+// array, as computed by zarr-python (tools/make_wild_manifest.py).
+int verify_manifest(const std::string& dir) {
+  auto store = std::make_shared<zarr::FilesystemStore>(dir, /*create=*/false);
+  const auto bytes = store->read("manifest.json");
+  if (!bytes) {
+    throw zarr::error(dir + ": no manifest.json");
+  }
+  const zarr::json manifest = zarr::v2::parse_json(*bytes, "manifest.json");
+  int count = 0;
+  for (const auto& item : manifest.at("arrays").items()) {
+    const std::string& path = item.key();
+    auto array = zarr::Array::open(store, path);
+    Bytes got(static_cast<std::size_t>(array.nbytes()));
+    array.read(got.data(), got.size());
+    if (got.size() != item.value().at("nbytes").get<std::uint64_t>()) {
+      fail(path, "decoded size mismatch");
+    }
+    constexpr std::string_view kHex = "0123456789abcdef";
+    const std::uint32_t checksum = zarr::detail::crc32c(got.data(), got.size());
+    std::string crc;
+    for (int shift = 28; shift >= 0; shift -= 4) {
+      crc += kHex[(checksum >> static_cast<unsigned>(shift)) & 0xFU];
+    }
+    if (item.value().at("crc32c").get<std::string>() != crc) {
+      fail(path, "decoded bytes differ from the zarr-python reference (crc32c mismatch)");
+    }
+    ++count;
+  }
+  std::cout << "verified " << count << " wild arrays in " << dir << "\n";
+  return 0;
+}
+
 // A zip file addressed as (parent directory store, file name).
 std::pair<std::shared_ptr<zarr::FilesystemStore>, std::string> split_zip_path(
     const std::string& file) {
@@ -503,6 +538,9 @@ int dispatch(const std::string& mode, const std::string& target) {
   if (mode == "write-v3") {
     return build_fixtures_v3(std::make_shared<zarr::FilesystemStore>(target));
   }
+  if (mode == "verify-manifest") {
+    return verify_manifest(target);
+  }
   if (mode == "read-zip") {
     auto [dir, name] = split_zip_path(target);
     return verify_store(std::make_shared<zarr::ZipReader>(std::move(dir), name), target);
@@ -515,8 +553,8 @@ int dispatch(const std::string& mode, const std::string& target) {
     std::cout << "packed into " << target << "\n";
     return 0;
   }
-  std::cerr
-      << "usage: conformance_tool read|write|write-v3 <dir> | read-zip|write-zip <file.zip>\n";
+  std::cerr << "usage: conformance_tool read|write|write-v3|verify-manifest <dir> | "
+               "read-zip|write-zip <file.zip>\n";
   return 2;
 }
 
@@ -524,8 +562,8 @@ int dispatch(const std::string& mode, const std::string& target) {
 
 int main(int argc, char** argv) {
   if (argc != 3) {
-    std::cerr
-        << "usage: conformance_tool read|write|write-v3 <dir> | read-zip|write-zip <file.zip>\n";
+    std::cerr << "usage: conformance_tool read|write|write-v3|verify-manifest <dir> | "
+                 "read-zip|write-zip <file.zip>\n";
     return 2;
   }
   try {
