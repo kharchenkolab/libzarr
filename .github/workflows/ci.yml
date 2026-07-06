@@ -123,6 +123,20 @@ jobs:
           printf '#include "zarr.hpp"\nint main() { zarr::MemoryStore s; return 0; }\n' > build/t.cpp
           g++ -std=c++17 -Wall -Wextra -Werror -Ibuild -Ithird_party build/t.cpp -o build/t && ./build/t
 
+  # The installed CMake package must be consumable by a downstream project via
+  # find_package(libzarr CONFIG) — the contract the vcpkg port depends on. Each
+  # config installs to a throwaway prefix and builds a standalone consumer
+  # against it (see tests/packaging/), exercising the codec dependency re-wiring.
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y zlib1g-dev libzstd-dev libblosc-dev
+      - run: bash tests/packaging/run_packaging_test.sh . "${RUNNER_TEMP}/pkg-min"
+      - run: bash tests/packaging/run_packaging_test.sh . "${RUNNER_TEMP}/pkg-zlib" -DLIBZARR_WITH_ZLIB=ON
+      - run: bash tests/packaging/run_packaging_test.sh . "${RUNNER_TEMP}/pkg-zstd" -DLIBZARR_WITH_ZSTD=ON
+      - run: bash tests/packaging/run_packaging_test.sh . "${RUNNER_TEMP}/pkg-blosc" -DLIBZARR_WITH_BLOSC=ON
+
   # The WASM gate: the zero-dependency core must compile under Emscripten and
   # the tests must pass under node. Required check — WASM compatibility is a
   # core constraint, not a feature.

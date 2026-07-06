@@ -4,6 +4,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(libzarr VERSION 0.3.0 LANGUAGES CXX)
 
+include(GNUInstallDirs)
+
 # ---- library ----------------------------------------------------------------
 add_library(libzarr INTERFACE)
 add_library(libzarr::libzarr ALIAS libzarr)
@@ -14,9 +16,11 @@ target_include_directories(libzarr INTERFACE
 
 option(LIBZARR_EXTERNAL_JSON "Use an external nlohmann/json instead of the vendored copy" OFF)
 if(NOT LIBZARR_EXTERNAL_JSON)
-  # SYSTEM: vendored headers are not subject to our warning flags.
+  # SYSTEM: vendored headers are not subject to our warning flags. Installed to
+  # an isolated subdir so it never shadows a consumer's own nlohmann/json.
   target_include_directories(libzarr SYSTEM INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party>)
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/libzarr-vendor>)
 endif()
 
 option(LIBZARR_WITH_ZLIB "Enable the gzip/zlib codecs (requires zlib)" OFF)
@@ -42,8 +46,13 @@ if(LIBZARR_WITH_BLOSC)
     message(FATAL_ERROR "LIBZARR_WITH_BLOSC=ON but c-blosc was not found")
   endif()
   find_package(Threads REQUIRED) # c-blosc itself uses pthreads
-  target_link_libraries(libzarr INTERFACE ${LIBZARR_BLOSC_LIBRARY} Threads::Threads)
-  target_include_directories(libzarr SYSTEM INTERFACE ${LIBZARR_BLOSC_INCLUDE_DIR})
+  # c-blosc ships no CMake config, so it is found by path. Confine those absolute
+  # paths to the build tree ($<BUILD_INTERFACE>); the installed package re-finds
+  # blosc at consume time in libzarrConfig.cmake, keeping the export relocatable.
+  target_link_libraries(libzarr INTERFACE
+    $<BUILD_INTERFACE:${LIBZARR_BLOSC_LIBRARY}> $<BUILD_INTERFACE:Threads::Threads>)
+  target_include_directories(libzarr SYSTEM INTERFACE
+    $<BUILD_INTERFACE:${LIBZARR_BLOSC_INCLUDE_DIR}>)
   target_compile_definitions(libzarr INTERFACE LIBZARR_HAS_BLOSC=1)
 endif()
 if(LIBZARR_WITH_ZSTD)
@@ -52,10 +61,56 @@ if(LIBZARR_WITH_ZSTD)
   if(NOT LIBZARR_ZSTD_LIBRARY OR NOT LIBZARR_ZSTD_INCLUDE_DIR)
     message(FATAL_ERROR "LIBZARR_WITH_ZSTD=ON but libzstd was not found")
   endif()
-  target_link_libraries(libzarr INTERFACE ${LIBZARR_ZSTD_LIBRARY})
-  target_include_directories(libzarr SYSTEM INTERFACE ${LIBZARR_ZSTD_INCLUDE_DIR})
+  # As with blosc: build-tree path only; re-found in libzarrConfig.cmake on install.
+  target_link_libraries(libzarr INTERFACE $<BUILD_INTERFACE:${LIBZARR_ZSTD_LIBRARY}>)
+  target_include_directories(libzarr SYSTEM INTERFACE
+    $<BUILD_INTERFACE:${LIBZARR_ZSTD_INCLUDE_DIR}>)
   target_compile_definitions(libzarr INTERFACE LIBZARR_HAS_ZSTD=1)
 endif()
+
+# ---- install / package config -----------------------------------------------
+# Makes `find_package(libzarr CONFIG)` work for downstream projects and for the
+# vcpkg port. Header-only, so the package is arch-independent; codec deps are
+# re-resolved by the consumer in libzarrConfig.cmake (see cmake/libzarrConfig.cmake.in).
+include(CMakePackageConfigHelpers)
+
+install(TARGETS libzarr EXPORT libzarrTargets)
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/libzarr
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+if(NOT LIBZARR_EXTERNAL_JSON)
+  install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nlohmann
+          DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libzarr-vendor)
+endif()
+
+install(EXPORT libzarrTargets
+        FILE libzarrTargets.cmake
+        NAMESPACE libzarr::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libzarr)
+
+# Record the compile-time feature selection for the consumer-side config.
+set(LIBZARR_CONFIG_WITH_ZLIB ${LIBZARR_WITH_ZLIB})
+set(LIBZARR_CONFIG_WITH_BLOSC ${LIBZARR_WITH_BLOSC})
+set(LIBZARR_CONFIG_WITH_ZSTD ${LIBZARR_WITH_ZSTD})
+set(LIBZARR_CONFIG_EXTERNAL_JSON ${LIBZARR_EXTERNAL_JSON})
+configure_package_config_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/libzarrConfig.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/libzarrConfig.cmake
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libzarr)
+
+write_basic_package_version_file(
+  ${CMAKE_CURRENT_BINARY_DIR}/libzarrConfigVersion.cmake
+  VERSION ${PROJECT_VERSION}
+  # Header-only ⇒ no ABI; SameMajorVersion mirrors the semver promise (source
+  # compatibility within a major version).
+  COMPATIBILITY SameMajorVersion
+  ARCH_INDEPENDENT)
+
+install(FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/libzarrConfig.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/libzarrConfigVersion.cmake
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libzarr)
 
 # ---- development harness ----------------------------------------------------
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)

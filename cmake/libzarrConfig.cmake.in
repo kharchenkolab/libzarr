@@ -1,0 +1,62 @@
+@PACKAGE_INIT@
+
+# libzarr is header-only. This config re-establishes the codec dependencies that
+# the compile-time build was configured with, so `find_package(libzarr CONFIG)`
+# yields a target with the same capabilities the package was installed with.
+include(CMakeFindDependencyMacro)
+
+set(LIBZARR_WITH_ZLIB @LIBZARR_CONFIG_WITH_ZLIB@)
+set(LIBZARR_WITH_BLOSC @LIBZARR_CONFIG_WITH_BLOSC@)
+set(LIBZARR_WITH_ZSTD @LIBZARR_CONFIG_WITH_ZSTD@)
+set(LIBZARR_EXTERNAL_JSON @LIBZARR_CONFIG_EXTERNAL_JSON@)
+
+# zlib is referenced by the exported target directly (ZLIB::ZLIB is relocatable),
+# so its dependency must resolve before the target is imported.
+if(LIBZARR_WITH_ZLIB)
+  find_dependency(ZLIB)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/libzarrTargets.cmake")
+
+# c-blosc and libzstd ship no CMake config upstream, so they are re-discovered
+# here by path and attached to the imported target — keeping the export itself
+# free of build-machine absolute paths.
+if(LIBZARR_WITH_BLOSC)
+  find_library(LIBZARR_BLOSC_LIBRARY blosc)
+  find_path(LIBZARR_BLOSC_INCLUDE_DIR blosc.h)
+  if(NOT LIBZARR_BLOSC_LIBRARY OR NOT LIBZARR_BLOSC_INCLUDE_DIR)
+    set(libzarr_FOUND FALSE)
+    set(libzarr_NOT_FOUND_MESSAGE
+        "libzarr was built with the blosc codec but c-blosc could not be found")
+    return()
+  endif()
+  find_dependency(Threads)
+  set_property(TARGET libzarr::libzarr APPEND PROPERTY
+    INTERFACE_LINK_LIBRARIES "${LIBZARR_BLOSC_LIBRARY};Threads::Threads")
+  set_property(TARGET libzarr::libzarr APPEND PROPERTY
+    INTERFACE_INCLUDE_DIRECTORIES "${LIBZARR_BLOSC_INCLUDE_DIR}")
+endif()
+
+if(LIBZARR_WITH_ZSTD)
+  find_library(LIBZARR_ZSTD_LIBRARY zstd)
+  find_path(LIBZARR_ZSTD_INCLUDE_DIR zstd.h)
+  if(NOT LIBZARR_ZSTD_LIBRARY OR NOT LIBZARR_ZSTD_INCLUDE_DIR)
+    set(libzarr_FOUND FALSE)
+    set(libzarr_NOT_FOUND_MESSAGE
+        "libzarr was built with the zstd codec but libzstd could not be found")
+    return()
+  endif()
+  set_property(TARGET libzarr::libzarr APPEND PROPERTY
+    INTERFACE_LINK_LIBRARIES "${LIBZARR_ZSTD_LIBRARY}")
+  set_property(TARGET libzarr::libzarr APPEND PROPERTY
+    INTERFACE_INCLUDE_DIRECTORIES "${LIBZARR_ZSTD_INCLUDE_DIR}")
+endif()
+
+# When the vendored JSON is disabled the consumer must supply nlohmann/json.
+if(LIBZARR_EXTERNAL_JSON)
+  find_dependency(nlohmann_json)
+  set_property(TARGET libzarr::libzarr APPEND PROPERTY
+    INTERFACE_LINK_LIBRARIES "nlohmann_json::nlohmann_json")
+endif()
+
+check_required_components(libzarr)

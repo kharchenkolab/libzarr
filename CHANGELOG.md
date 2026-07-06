@@ -6,6 +6,15 @@ All notable changes to libzarr are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Installable CMake package**: `find_package(libzarr CONFIG)` now works. `cmake --install`
+  lays down the headers (incl. the vendored JSON, isolated under `include/libzarr-vendor/`),
+  a relocatable exported `libzarr::libzarr` target, and a generated `libzarrConfig.cmake` that
+  re-resolves the codec dependencies (zlib/blosc/zstd) selected at build time. A `packaging`
+  CI job installs each config to a throwaway prefix and builds a standalone consumer against
+  it (`tests/packaging/`), so the contract the vcpkg port depends on is guarded. Blosc/zstd
+  paths are confined to `$<BUILD_INTERFACE>` — the export carries no build-machine paths.
+
 ## [0.3.0] - 2026-07-05
 
 Real-world interop hardening and operational maturity: genuine foreign-writer stores

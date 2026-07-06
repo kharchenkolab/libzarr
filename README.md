@@ -117,9 +117,20 @@ cmake --build build -j
 (cd build && ctest --output-on-failure)
 ```
 
-Consuming the library needs none of this — it is header-only. A single-file build is also
-available: `tools/amalgamate.py` produces `zarr.hpp` (keep `third_party/` on the include
-path for the vendored JSON).
+Consuming the library needs none of this — it is header-only. Point your compiler at
+`include/` (and `third_party/` for the vendored JSON) and `#include <libzarr/libzarr.hpp>`.
+A single-file build is also available: `tools/amalgamate.py` produces `zarr.hpp`.
+
+For CMake projects, `add_subdirectory()` or `FetchContent` expose the `libzarr::libzarr`
+target directly. An installed copy is consumed the standard way:
+
+```cmake
+find_package(libzarr CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE libzarr::libzarr)
+```
+
+Enable optional codecs at configure time with `-DLIBZARR_WITH_ZLIB=ON` (also `_BLOSC`,
+`_ZSTD`); the installed package re-resolves those dependencies for consumers automatically.
 
 ## License
 
