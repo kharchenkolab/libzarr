@@ -22,6 +22,11 @@
 #define LIBZARR_VERSION_PATCH 0
 // NOLINTEND(modernize-macro-to-enum,cppcoreguidelines-macro-to-enum)
 
+/// Marks a public symbol deprecated with a migration message. Per
+/// docs/COMPATIBILITY.md a deprecated symbol is kept — emitting a compiler
+/// warning — for at least one minor release before removal in the next major.
+#define LIBZARR_DEPRECATED(msg) [[deprecated(msg)]]
+
 namespace zarr {
 
 /// Exception thrown for every failure reachable from user input or store

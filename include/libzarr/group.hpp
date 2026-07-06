@@ -153,7 +153,7 @@ class Group {
 
   /// Opens a child (possibly nested) array.
   [[nodiscard]] Array open_array(const std::string& name) const {
-    return Array::open(store_, child_path(name), options_, consolidated_);
+    return Array::open_impl(store_, child_path(name), options_, consolidated_);
   }
 
   /// Lists immediate children, classified by their metadata documents.

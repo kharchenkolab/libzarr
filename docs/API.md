@@ -11,6 +11,7 @@
 - `LIBZARR_HAS_ZLIB`, `LIBZARR_HAS_BLOSC`, `LIBZARR_HAS_ZSTD` — set when the
   matching codec is compiled in; a codec header `#error`s without its flag.
 - `LIBZARR_EXTERNAL_JSON` — use an external nlohmann/json instead of the vendored copy.
+- `LIBZARR_DEPRECATED(msg)` — marks a symbol deprecated (see COMPATIBILITY.md).
 
 ## `types.hpp`
 
@@ -133,7 +134,7 @@
 
 - `class Array`
   - `static Array create(std::shared_ptr<Store> store, const std::string& path, const ArraySpec& spec)`
-  - `static Array open(std::shared_ptr<Store> store, const std::string& path, OpenOptions options = {}, const std::shared_ptr<const json>& consolidated = nullptr)`
+  - `[[nodiscard]] static Array open(std::shared_ptr<Store> store, const std::string& path, OpenOptions options = {})`
   - `[[nodiscard]] const ArrayMeta& meta() const`
   - `[[nodiscard]] const std::string& path() const`
   - `[[nodiscard]] std::vector<std::uint64_t> grid_shape() const`
@@ -193,15 +194,15 @@
 - `struct ParsedDType`
   - `DataType dtype`
   - `bool big_endian`
-- `ArrayMeta parse_array_meta(const json& j, const std::string& ctx)`
-- `ParsedDType parse_data_type(const std::string& text, const std::string& ctx)`
-- `json emit_array_meta(const ArrayMeta& meta)`
-- `json emit_group_meta()`
-- `std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::string& ctx)`
-- `std::optional<json> read_consolidated(Store& store)`
-- `std::string chunk_key(const std::vector<std::uint64_t>& index, char separator)`
-- `std::string emit_data_type(DataType dt, bool big_endian)`
-- `std::string meta_key(const std::string& path, const char* suffix)`
+- `[[nodiscard]] ArrayMeta parse_array_meta(const json& j, const std::string& ctx)`
+- `[[nodiscard]] ParsedDType parse_data_type(const std::string& text, const std::string& ctx)`
+- `[[nodiscard]] json emit_array_meta(const ArrayMeta& meta)`
+- `[[nodiscard]] json emit_group_meta()`
+- `[[nodiscard]] std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::string& ctx)`
+- `[[nodiscard]] std::optional<json> read_consolidated(Store& store)`
+- `[[nodiscard]] std::string chunk_key(const std::vector<std::uint64_t>& index, char separator)`
+- `[[nodiscard]] std::string emit_data_type(DataType dt, bool big_endian)`
+- `[[nodiscard]] std::string meta_key(const std::string& path, const char* suffix)`
 - `void check_group_meta(const json& j, const std::string& ctx)`
 - `void consolidate(Store& store)`
 - `void erase_meta_key(Store& store, const std::string& key)`
@@ -215,16 +216,16 @@
 - `struct GroupMeta`
   - `json attributes = json::object()`
   - `std::optional<json> consolidated`
-- `ArrayMeta parse_array_meta(const json& j, const std::string& ctx, bool lenient = false)`
-- `DataType parse_data_type(const json& v, const std::string& ctx)`
-- `GroupMeta parse_group_meta(const json& j, const std::string& ctx, bool lenient = false)`
-- `json emit_array_meta(const ArrayMeta& meta)`
-- `json emit_fill(const std::optional<Bytes>& fill, DataType dt)`
-- `json emit_group_meta(const json& attributes)`
-- `std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::string& ctx, bool lenient)`
-- `std::string chunk_key(const std::vector<std::uint64_t>& index, char separator)`
-- `std::string emit_data_type(DataType dt)`
-- `std::string meta_key(const std::string& path)`
+- `[[nodiscard]] ArrayMeta parse_array_meta(const json& j, const std::string& ctx, bool lenient = false)`
+- `[[nodiscard]] DataType parse_data_type(const json& v, const std::string& ctx)`
+- `[[nodiscard]] GroupMeta parse_group_meta(const json& j, const std::string& ctx, bool lenient = false)`
+- `[[nodiscard]] json emit_array_meta(const ArrayMeta& meta)`
+- `[[nodiscard]] json emit_fill(const std::optional<Bytes>& fill, DataType dt)`
+- `[[nodiscard]] json emit_group_meta(const json& attributes)`
+- `[[nodiscard]] std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::string& ctx, bool lenient)`
+- `[[nodiscard]] std::string chunk_key(const std::vector<std::uint64_t>& index, char separator)`
+- `[[nodiscard]] std::string emit_data_type(DataType dt)`
+- `[[nodiscard]] std::string meta_key(const std::string& path)`
 - `void consolidate(Store& store)`
 
 ## `zip.hpp`
@@ -242,7 +243,7 @@
   - `[[nodiscard]] std::vector<std::string> list_prefix(std::string_view prefix) override`
   - `[[nodiscard]] DirListing list_dir(std::string_view prefix) override`
   - `[[nodiscard]] std::size_t entry_count() const`
-- `void zip_pack(Store& source, Store& dest, const std::string& dest_key, const std::string& prefix = "", bool force_zip64 = false)`
+- `void zip_pack(Store& source, Store& dest, const std::string& dest_key, const std::string& prefix = "")`
 
 ## `adapters/filesystem_store.hpp`
 

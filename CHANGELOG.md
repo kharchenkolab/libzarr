@@ -23,6 +23,12 @@ All notable changes to libzarr are documented here. The format follows
   / `codec::shuffle()` were added, so every user-specifiable (bytes->bytes) codec
   now has a factory — no more hand-writing `CodecSpec{"crc32c", {}}`. The
   structural `bytes`/`transpose` stages remain library-managed (not factories).
+- **API 1.0 freeze — trimmed signatures**: dropped the test-only `force_zip64`
+  parameter from public `zip_pack` (moved to an internal `detail_zip` helper) and
+  the internal `consolidated` parameter from `Array::open` (now a private
+  `friend Group` overload). Completed the `[[nodiscard]]` sweep across the
+  value-returning v2/v3 free functions, and added a `LIBZARR_DEPRECATED(msg)`
+  macro so post-1.0 symbols can be retired with a deprecation cycle.
 
 ### Fixed
 - **`DataType::of(DType::raw)` throws instead of asserting**: `raw` has no fixed

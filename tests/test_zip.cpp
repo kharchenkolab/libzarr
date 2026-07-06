@@ -26,7 +26,7 @@ std::shared_ptr<MemoryStore> sample_store() {
 std::shared_ptr<ZipStore> packed(const std::shared_ptr<MemoryStore>& source,
                                   bool force_zip64 = false) {
   auto archive = std::make_shared<MemoryStore>();
-  zarr::zip_pack(*source, *archive, "store.zip", "", force_zip64);
+  zarr::detail_zip::zip_pack_impl(*source, *archive, "store.zip", "", force_zip64);
   return std::make_shared<ZipStore>(archive, "store.zip");
 }
 

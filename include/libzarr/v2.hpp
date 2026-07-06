@@ -33,7 +33,7 @@ inline constexpr const char* kAttrsSuffix = ".zattrs";
 inline constexpr const char* kConsolidatedKey = ".zmetadata";
 
 /// Store key of a metadata document for the node at `path` ("" = root).
-inline std::string meta_key(const std::string& path, const char* suffix) {
+[[nodiscard]] inline std::string meta_key(const std::string& path, const char* suffix) {
   return path.empty() ? suffix : path + "/" + suffix;
 }
 
@@ -123,7 +123,7 @@ DataType dtype_of_code(char code, std::uint64_t size, const Fail& fail) {
 
 /// Parses a v2 dtype string (`[<>|][biufV]<size>`). Read-supported kinds only;
 /// everything else fails with a precise error naming the dtype.
-inline ParsedDType parse_data_type(const std::string& text, const std::string& ctx) {
+[[nodiscard]] inline ParsedDType parse_data_type(const std::string& text, const std::string& ctx) {
   const auto fail = [&](const char* why) { throw error(ctx + ": dtype '" + text + "': " + why); };
   if (text.size() < 3) {
     fail("expected the form '<f8', '|u1', ...");
@@ -148,7 +148,7 @@ inline ParsedDType parse_data_type(const std::string& text, const std::string& c
 /// Emits the canonical v2 dtype string. `big_endian` is preserved from an
 /// opened array (we never *create* big-endian arrays, but re-emitting an
 /// opened one must not lie about its chunk bytes).
-inline std::string emit_data_type(DataType dt, bool big_endian) {
+[[nodiscard]] inline std::string emit_data_type(DataType dt, bool big_endian) {
   const char order_multi = big_endian ? '>' : '<';
   switch (dt.kind) {
     case DType::boolean:
@@ -190,7 +190,8 @@ inline std::string emit_data_type(DataType dt, bool big_endian) {
 
 /// Parses a v2 fill_value, dtype-directed. Tolerant per our READ policy; each
 /// tolerance cites its origin.
-inline std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::string& ctx);
+[[nodiscard]] inline std::optional<Bytes> parse_fill(const json& v, DataType dt,
+                                                     const std::string& ctx);
 
 namespace detail_v2 {
 
@@ -275,7 +276,8 @@ inline Bytes string_fill(const std::string& s, DataType dt, const std::string& c
 
 }  // namespace detail_v2
 
-inline std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::string& ctx) {
+[[nodiscard]] inline std::optional<Bytes> parse_fill(const json& v, DataType dt,
+                                                     const std::string& ctx) {
   if (v.is_null()) {
     return std::nullopt;  // v2 spec: null = fill value undefined (reads as zeros)
   }
@@ -495,13 +497,13 @@ inline json emit_filters(const std::vector<CodecSpec>& codecs) {
 /// Parses a .zarray document into normalized ArrayMeta (without attributes,
 /// which live in .zattrs). Unknown members are ignored: v2 predates v3's
 /// must-understand rule and extra keys are common in the wild.
-inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx) {
+[[nodiscard]] inline ArrayMeta parse_array_meta(const json& j, const std::string& ctx) {
   return detail::guard_json(ctx, [&] { return detail_v2::parse_array_meta_impl(j, ctx); });
 }
 
 /// Emits canonical .zarray JSON. Deterministic: sorted keys, stable forms;
 /// dimension_separator appears only when '/' (matching common practice).
-inline json emit_array_meta(const ArrayMeta& meta) {
+[[nodiscard]] inline json emit_array_meta(const ArrayMeta& meta) {
   json j;
   j["zarr_format"] = 2;
   j["shape"] = meta.shape;
@@ -563,7 +565,7 @@ inline json emit_array_meta(const ArrayMeta& meta) {
 // ---- groups / chunk keys ------------------------------------------------------
 
 /// The (only) content of a v2 group document.
-inline json emit_group_meta() { return json{{"zarr_format", 2}}; }
+[[nodiscard]] inline json emit_group_meta() { return json{{"zarr_format", 2}}; }
 
 /// Validates a .zgroup document.
 inline void check_group_meta(const json& j, const std::string& ctx) {
@@ -577,7 +579,8 @@ inline void check_group_meta(const json& j, const std::string& ctx) {
 
 /// v2 chunk key relative to the array: indices joined by the separator;
 /// rank-0 arrays use the fixed key "0".
-inline std::string chunk_key(const std::vector<std::uint64_t>& index, char separator) {
+[[nodiscard]] inline std::string chunk_key(const std::vector<std::uint64_t>& index,
+                                           char separator) {
   if (index.empty()) {
     return "0";
   }
@@ -637,7 +640,7 @@ inline void consolidate(Store& store) {
 }
 
 /// Loads the consolidated metadata map if present and well-formed.
-inline std::optional<json> read_consolidated(Store& store) {
+[[nodiscard]] inline std::optional<json> read_consolidated(Store& store) {
   const auto bytes = store.read(kConsolidatedKey);
   if (!bytes) {
     return std::nullopt;

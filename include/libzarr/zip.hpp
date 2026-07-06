@@ -503,12 +503,13 @@ class ZipStore final : public Store {
   std::map<std::string, detail_zip::Entry, std::less<>> entries_;
 };
 
-/// Packs every key of `source` under `prefix` into a STORED-entry ZIP written
-/// at `dest_key` in `dest`. Deterministic byte-for-byte: sorted entries, zero
-/// timestamps (DOS epoch), no comments. `force_zip64` exists for testing the
-/// ZIP64 structures with small archives.
-inline void zip_pack(Store& source, Store& dest, const std::string& dest_key,
-                     const std::string& prefix = "", bool force_zip64 = false) {
+namespace detail_zip {
+
+/// Implementation of zip_pack. `force_zip64` forces the ZIP64 structures even
+/// when no value overflows 32 bits — used by tests to exercise them on small
+/// archives; not part of the public API.
+inline void zip_pack_impl(Store& source, Store& dest, const std::string& dest_key,
+                          const std::string& prefix, bool force_zip64) {
   namespace z = detail_zip;
   Bytes out;
   Bytes cen;
@@ -539,6 +540,16 @@ inline void zip_pack(Store& source, Store& dest, const std::string& dest_key,
   out.insert(out.end(), cen.begin(), cen.end());
   z::append_end_records(out, count, cen.size(), cen_offset, force_zip64);
   dest.write(dest_key, std::move(out));
+}
+
+}  // namespace detail_zip
+
+/// Packs every key of `source` under `prefix` into a STORED-entry ZIP written
+/// at `dest_key` in `dest`. Deterministic byte-for-byte: sorted entries, zero
+/// timestamps (DOS epoch), no comments.
+inline void zip_pack(Store& source, Store& dest, const std::string& dest_key,
+                     const std::string& prefix = "") {
+  detail_zip::zip_pack_impl(source, dest, dest_key, prefix, /*force_zip64=*/false);
 }
 
 }  // namespace zarr

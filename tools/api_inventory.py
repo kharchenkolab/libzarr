@@ -302,6 +302,7 @@ def main():
         "- `LIBZARR_HAS_ZLIB`, `LIBZARR_HAS_BLOSC`, `LIBZARR_HAS_ZSTD` — set when the",
         "  matching codec is compiled in; a codec header `#error`s without its flag.",
         "- `LIBZARR_EXTERNAL_JSON` — use an external nlohmann/json instead of the vendored copy.",
+        "- `LIBZARR_DEPRECATED(msg)` — marks a symbol deprecated (see COMPATIBILITY.md).",
         "",
     ]
     for rel in HEADERS:

@@ -162,51 +162,10 @@ class Array {
   }
 
   /// Opens an existing array at `path`, probing v3 (zarr.json) first, then
-  /// v2 (.zarray). `consolidated` is a pre-fetched store-key -> document map
-  /// (supplied by Group when consolidated metadata is present).
-  static Array open(std::shared_ptr<Store> store, const std::string& path, OpenOptions options = {},
-                    const std::shared_ptr<const json>& consolidated = nullptr) {
-    if (!store) {
-      throw error("Array::open: null store");
-    }
-    detail::validate_path(path);
-    const auto read_doc = [&](const std::string& key) -> std::optional<json> {
-      if (consolidated) {
-        const auto it = consolidated->find(key);
-        if (it == consolidated->end()) {
-          return std::nullopt;
-        }
-        return *it;
-      }
-      const auto bytes = store->read(key);
-      if (!bytes) {
-        return std::nullopt;
-      }
-      return detail::parse_json(*bytes, key);
-    };
-
-    // Probe order: zarr.json first, so v3 opens cost one round-trip.
-    const std::string v3_key = v3::meta_key(path);
-    if (const auto doc = read_doc(v3_key)) {
-      if (doc->is_object() && doc->value("node_type", "") == std::string("group")) {
-        throw error("'" + path + "' is a group, not an array");
-      }
-      return {std::move(store), path, v3::parse_array_meta(*doc, v3_key, options.lenient)};
-    }
-
-    const std::string meta_key = v2::meta_key(path, v2::kArraySuffix);
-    auto doc = read_doc(meta_key);
-    if (!doc) {
-      if (store->exists(v2::meta_key(path, v2::kGroupSuffix))) {
-        throw error("'" + path + "' is a group, not an array");
-      }
-      throw error("no array at '" + path + "' (neither " + v3_key + " nor " + meta_key + " found)");
-    }
-    ArrayMeta meta = v2::parse_array_meta(*doc, meta_key);
-    if (const auto attrs = read_doc(v2::meta_key(path, v2::kAttrsSuffix))) {
-      meta.attributes = *attrs;
-    }
-    return {std::move(store), path, std::move(meta)};
+  /// v2 (.zarray).
+  [[nodiscard]] static Array open(std::shared_ptr<Store> store, const std::string& path,
+                                  OpenOptions options = {}) {
+    return open_impl(std::move(store), path, options, nullptr);
   }
 
   /// Normalized metadata (shape, chunks, dtype, codecs, attributes).
@@ -365,6 +324,56 @@ class Array {
   }
 
  private:
+  friend class Group;
+
+  /// The real open. Group passes a pre-fetched store-key -> document map
+  /// (`consolidated`) when consolidated metadata is present, so child opens
+  /// skip a per-node read; the public open() passes nullptr.
+  static Array open_impl(std::shared_ptr<Store> store, const std::string& path, OpenOptions options,
+                         const std::shared_ptr<const json>& consolidated) {
+    if (!store) {
+      throw error("Array::open: null store");
+    }
+    detail::validate_path(path);
+    const auto read_doc = [&](const std::string& key) -> std::optional<json> {
+      if (consolidated) {
+        const auto it = consolidated->find(key);
+        if (it == consolidated->end()) {
+          return std::nullopt;
+        }
+        return *it;
+      }
+      const auto bytes = store->read(key);
+      if (!bytes) {
+        return std::nullopt;
+      }
+      return detail::parse_json(*bytes, key);
+    };
+
+    // Probe order: zarr.json first, so v3 opens cost one round-trip.
+    const std::string v3_key = v3::meta_key(path);
+    if (const auto doc = read_doc(v3_key)) {
+      if (doc->is_object() && doc->value("node_type", "") == std::string("group")) {
+        throw error("'" + path + "' is a group, not an array");
+      }
+      return {std::move(store), path, v3::parse_array_meta(*doc, v3_key, options.lenient)};
+    }
+
+    const std::string meta_key = v2::meta_key(path, v2::kArraySuffix);
+    auto doc = read_doc(meta_key);
+    if (!doc) {
+      if (store->exists(v2::meta_key(path, v2::kGroupSuffix))) {
+        throw error("'" + path + "' is a group, not an array");
+      }
+      throw error("no array at '" + path + "' (neither " + v3_key + " nor " + meta_key + " found)");
+    }
+    ArrayMeta meta = v2::parse_array_meta(*doc, meta_key);
+    if (const auto attrs = read_doc(v2::meta_key(path, v2::kAttrsSuffix))) {
+      meta.attributes = *attrs;
+    }
+    return {std::move(store), path, std::move(meta)};
+  }
+
   /// Applies the format-specific ArraySpec members (chunk-key encoding,
   /// dimension_names, shards) with their validation.
   static void apply_format_members(const ArraySpec& spec, ArrayMeta& meta, const std::string& ctx) {
