@@ -29,6 +29,14 @@ json minimal_zarray() {
 
 }  // namespace
 
+TEST_CASE("DataType::of rejects raw") {
+  // raw has no fixed size, so of() throws rather than asserting: the kind can
+  // come from parsed metadata, and the check must survive NDEBUG builds.
+  CHECK_THROWS_AS((void)DataType::of(DType::raw), zarr::error);
+  CHECK(DataType::of(DType::float32) == DataType{DType::float32, 4});
+  CHECK(DataType::raw_bytes(7) == DataType{DType::raw, 7});
+}
+
 TEST_CASE("v2 dtype parsing") {
   const auto parse = [](const char* s) { return zarr::v2::parse_dtype(s, "test"); };
 

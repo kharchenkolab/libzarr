@@ -38,6 +38,8 @@ class Group {
   /// including any missing ancestor groups (writers that skip intermediate
   /// group documents are a known interop hazard). Existing group documents
   /// along the chain are left untouched.
+  // Not [[nodiscard]]: creating writes the group metadata as a side effect, so
+  // discarding the returned handle (create-and-forget) is a legitimate use.
   static Group create(std::shared_ptr<Store> store, const std::string& path = "",
                       ZarrFormat format = ZarrFormat::v2) {
     if (!store) {
@@ -52,8 +54,8 @@ class Group {
   /// Consolidated metadata — v2 .zmetadata at the store root, or the v3
   /// inline convention — is used when present and shared with every node
   /// opened through this group.
-  static Group open(std::shared_ptr<Store> store, const std::string& path = "",
-                    OpenOptions options = {}) {
+  [[nodiscard]] static Group open(std::shared_ptr<Store> store, const std::string& path = "",
+                                  OpenOptions options = {}) {
     if (!store) {
       throw error("Group::open: null store");
     }

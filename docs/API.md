@@ -24,15 +24,15 @@
 - `struct DataType`
   - `DType kind`
   - `std::uint32_t itemsize`
-  - `static constexpr DataType of(DType kind)`
-  - `static constexpr DataType raw_bytes(std::uint32_t size)`
-  - `friend constexpr bool operator==(DataType a, DataType b)`
-  - `friend constexpr bool operator!=(DataType a, DataType b)`
-- `constexpr bool is_complex(DType kind)`
-- `constexpr bool is_float(DType kind)`
-- `constexpr bool is_signed_int(DType kind)`
-- `constexpr bool is_unsigned_int(DType kind)`
-- `constexpr std::uint32_t fixed_itemsize(DType kind)`
+  - `[[nodiscard]] static constexpr DataType of(DType kind)`
+  - `[[nodiscard]] static constexpr DataType raw_bytes(std::uint32_t size)`
+  - `[[nodiscard]] friend constexpr bool operator==(DataType a, DataType b)`
+  - `[[nodiscard]] friend constexpr bool operator!=(DataType a, DataType b)`
+- `[[nodiscard]] constexpr bool is_complex(DType kind)`
+- `[[nodiscard]] constexpr bool is_float(DType kind)`
+- `[[nodiscard]] constexpr bool is_signed_int(DType kind)`
+- `[[nodiscard]] constexpr bool is_unsigned_int(DType kind)`
+- `[[nodiscard]] constexpr std::uint32_t fixed_itemsize(DType kind)`
 
 ## `store.hpp`
 
@@ -63,9 +63,9 @@
   - `Kind kind`
   - `std::uint64_t offset`
   - `std::uint64_t length`
-  - `static constexpr ByteRange full()`
-  - `static constexpr ByteRange slice(std::uint64_t offset, std::uint64_t length)`
-  - `static constexpr ByteRange suffix(std::uint64_t length)`
+  - `[[nodiscard]] static constexpr ByteRange full()`
+  - `[[nodiscard]] static constexpr ByteRange slice(std::uint64_t offset, std::uint64_t length)`
+  - `[[nodiscard]] static constexpr ByteRange suffix(std::uint64_t length)`
 - `struct DirListing`
   - `std::vector<std::string> keys`
   - `std::vector<std::string> prefixes`
@@ -103,18 +103,18 @@
   - `std::vector<std::uint64_t> shard_shape`
   - `std::vector<CodecSpec> index_codecs`
   - `bool index_at_end`
-- `Bytes canonical_json_bytes(const json& j)`
 - `CodecSpec blosc(const std::string& cname = "", int clevel = 5, const std::string& shuffle = "")`
 - `CodecSpec gzip(int level = 5)`
 - `CodecSpec zlib(int level = 5)`
 - `CodecSpec zstd(int level = 0, bool checksum = false)`
+- `[[nodiscard]] Bytes canonical_json_bytes(const json& j)`
 
 ## `codecs.hpp`
 
 ### `namespace zarr`
 
 - `class CodecPipeline`
-  - `static CodecPipeline resolve(const ArrayMeta& meta)`
+  - `[[nodiscard]] static CodecPipeline resolve(const ArrayMeta& meta)`
   - `[[nodiscard]] std::uint64_t decoded_chunk_bytes() const`
   - `[[nodiscard]] bool is_identity() const`
   - `[[nodiscard]] bool supports_partial_read() const`
@@ -162,7 +162,7 @@
 
 - `class Group`
   - `static Group create(std::shared_ptr<Store> store, const std::string& path = "", ZarrFormat format = ZarrFormat::v2)`
-  - `static Group open(std::shared_ptr<Store> store, const std::string& path = "", OpenOptions options = {})`
+  - `[[nodiscard]] static Group open(std::shared_ptr<Store> store, const std::string& path = "", OpenOptions options = {})`
   - `[[nodiscard]] const std::string& path() const`
   - `[[nodiscard]] const json& attributes() const`
   - `void set_attributes(json attributes)`

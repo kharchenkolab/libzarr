@@ -137,7 +137,7 @@ struct OpenOptions {
 
 /// Serializes JSON in libzarr's canonical form: 4-space indent, sorted keys
 /// (nlohmann's storage order), UTF-8. Byte-stable across platforms.
-inline Bytes canonical_json_bytes(const json& j) {
+[[nodiscard]] inline Bytes canonical_json_bytes(const json& j) {
   const std::string text = j.dump(4);
   return {text.begin(), text.end()};
 }

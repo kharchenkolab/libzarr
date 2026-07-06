@@ -7,6 +7,10 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **`DataType::of(DType::raw)` throws instead of asserting**: `raw` has no fixed
+  size, and the kind can originate from parsed metadata, so an out-of-range call
+  now raises `zarr::error` (and survives `NDEBUG`) rather than returning a
+  malformed zero-size type. Use `DataType::raw_bytes()` for raw.
 - **ZIP64 out-of-bounds read** (fuzz-found SEGV): a crafted EOCD with a ZIP64
   sentinel offset plus a locator pointing past the archive tail read past the
   end of the held buffer in `ZipReader::locate_directory`. The ZIP64 record is
@@ -15,6 +19,14 @@ All notable changes to libzarr are documented here. The format follows
   Regression-pinned by the exact crash input in `tests/test_zip.cpp`.
 
 ### Added
+- **Machine-checked public API surface**: `tools/api_inventory.py` regenerates
+  `docs/API.md` (every symbol in `namespace zarr` outside `detail*`) as a pure
+  function of the headers; a CI `api` job fails if the committed copy drifts, so
+  no public-surface change lands silently. `docs/COMPATIBILITY.md` states the 1.0
+  source-compatibility promise. First pass toward the freeze adds `[[nodiscard]]`
+  to the pure value-returning core (`DataType`/`ByteRange` factories, the `DType`
+  predicates, `CodecPipeline::resolve`, `canonical_json_bytes`, `Group::open`);
+  side-effecting factories like `Group::create` stay discardable by design.
 - **Installable CMake package**: `find_package(libzarr CONFIG)` now works. `cmake --install`
   lays down the headers (incl. the vendored JSON, isolated under `include/libzarr-vendor/`),
   a relocatable exported `libzarr::libzarr` target, and a generated `libzarrConfig.cmake` that
