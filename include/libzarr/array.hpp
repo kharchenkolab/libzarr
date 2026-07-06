@@ -82,8 +82,9 @@ struct ArraySpec {
   std::vector<std::uint64_t> chunks;
   /// Element type.
   DataType dtype;
-  /// bytes->bytes codecs (v2: at most one of zarr::gzip / zarr::zlib;
-  /// v3 additionally zarr::CodecSpec{"blosc", ...} / {"crc32c", {}}).
+  /// bytes->bytes codecs, via the zarr::codec:: factories (v2: at most one of
+  /// codec::gzip() / codec::zlib(); v3 additionally codec::blosc() /
+  /// codec::zstd() / codec::crc32c()).
   std::vector<CodecSpec> codecs;
   /// Fill value as one native-order element; defaults to zeros.
   std::optional<Bytes> fill;

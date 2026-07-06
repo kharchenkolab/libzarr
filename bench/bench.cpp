@@ -101,18 +101,18 @@ int main() try {
       {"raw", {}, {}},
       {"crc32c", {{"crc32c", {}}}, {}},
 #ifdef LIBZARR_HAS_ZLIB
-      {"gzip-1", {zarr::gzip(1)}, {}},
-      {"gzip-5", {zarr::gzip(5)}, {}},
+      {"gzip-1", {zarr::codec::gzip(1)}, {}},
+      {"gzip-5", {zarr::codec::gzip(5)}, {}},
 #endif
 #ifdef LIBZARR_HAS_ZSTD
-      {"zstd-0", {zarr::zstd(0)}, {}},
+      {"zstd-0", {zarr::codec::zstd(0)}, {}},
 #endif
 #ifdef LIBZARR_HAS_BLOSC
-      {"blosc-lz4", {zarr::blosc()}, {}},
+      {"blosc-lz4", {zarr::codec::blosc()}, {}},
 #endif
       {"sharded raw", {}, {1024, 1024}},
 #ifdef LIBZARR_HAS_ZSTD
-      {"sharded zstd-0", {zarr::zstd(0)}, {1024, 1024}},
+      {"sharded zstd-0", {zarr::codec::zstd(0)}, {1024, 1024}},
 #endif
   };
   for (const Case& c : cases) {

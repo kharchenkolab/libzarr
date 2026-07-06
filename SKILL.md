@@ -73,7 +73,7 @@ spec.shape  = {10000, 10000};
 spec.chunks = {100, 100};
 spec.shards = {1000, 1000};             // optional, v3 only
 spec.dtype  = zarr::DataType::of(zarr::DType::float32);
-spec.codecs = {zarr::gzip(5)};          // or {"blosc", {...}}, {"crc32c", {}}
+spec.codecs = {zarr::codec::gzip(5)};          // or codec::blosc(...), codec::crc32c()
 auto array = zarr::Group::create(store, "", zarr::ZarrFormat::v3)
                  .create_array("temperature", spec);
 array.write(data.data(), data.size() * sizeof(float));

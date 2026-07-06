@@ -307,7 +307,7 @@ TEST_CASE("v2 blosc compressor lowers to the blosc codec") {
 
   // v3-style named shuffle maps to the numeric numcodecs form on emission.
   zarr::ArrayMeta named = meta;
-  named.codecs[1] = zarr::blosc("zstd", 3, "bitshuffle");
+  named.codecs[1] = zarr::codec::blosc("zstd", 3, "bitshuffle");
   CHECK(zarr::v2::emit_array_meta(named).at("compressor").at("shuffle") == 2);
 }
 

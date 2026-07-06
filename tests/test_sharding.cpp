@@ -128,7 +128,7 @@ TEST_CASE("sharded metadata round-trips through emission") {
   auto store = std::make_shared<zarr::MemoryStore>();
 #ifdef LIBZARR_HAS_ZLIB
   zarr::ArraySpec spec = sharded_spec();
-  spec.codecs = {zarr::gzip(5)};
+  spec.codecs = {zarr::codec::gzip(5)};
 #else
   const zarr::ArraySpec spec = sharded_spec();
 #endif

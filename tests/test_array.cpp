@@ -147,7 +147,7 @@ TEST_CASE("byte-range sub-chunk reads") {
 
 #ifdef LIBZARR_HAS_ZLIB
   ArraySpec compressed = spec;
-  compressed.codecs = {zarr::gzip(5)};
+  compressed.codecs = {zarr::codec::gzip(5)};
   auto arr2 = zarr::Array::create(store, "rc", compressed);
   CHECK_THROWS_AS((void)arr2.read_chunk_range({0}, 0, 1), zarr::error);
 #endif
@@ -315,7 +315,7 @@ TEST_CASE("compressed array round-trip (gzip and zlib)") {
     spec.shape = {100};
     spec.chunks = {32};
     spec.dtype = DataType::of(DType::float64);
-    spec.codecs = {codec == std::string("gzip") ? zarr::gzip(5) : zarr::zlib(5)};
+    spec.codecs = {codec == std::string("gzip") ? zarr::codec::gzip(5) : zarr::codec::zlib(5)};
 
     auto array = zarr::Array::create(store, "c", spec);
     std::vector<double> values(100);
@@ -377,7 +377,7 @@ TEST_CASE("region writes read-modify-write partially covered chunks") {
   spec.chunks = {2, 4};
   spec.dtype = DataType::of(DType::int32);
 #ifdef LIBZARR_HAS_ZLIB
-  spec.codecs = {zarr::gzip(1)};  // RMW must decode-modify-encode
+  spec.codecs = {zarr::codec::gzip(1)};  // RMW must decode-modify-encode
 #endif
   auto array = zarr::Array::create(store, "w", spec);
   const auto values = iota_values<std::int32_t>(30);

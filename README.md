@@ -32,7 +32,7 @@ spec.shape  = {8, 8};
 spec.chunks = {2, 2};
 spec.shards = {4, 4};                     // optional (v3): pack chunks into shard objects
 spec.dtype  = zarr::DataType::of(zarr::DType::float32);
-spec.codecs = {zarr::gzip(5)};            // or {"blosc", {...}}, {"crc32c", {}}
+spec.codecs = {zarr::codec::gzip(5)};            // or codec::blosc(...), codec::crc32c()
 auto array = root.create_array("temperature", spec);
 
 array.write(data.data(), data.size() * sizeof(float));   // whole array, C order

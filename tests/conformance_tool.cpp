@@ -215,7 +215,7 @@ int build_fixtures(const std::shared_ptr<zarr::Store>& store) {
       spec.dtype = dtype;
 #ifdef LIBZARR_HAS_ZLIB
       if (comp == "zlib") {
-        spec.codecs = {zarr::zlib(1)};
+        spec.codecs = {zarr::codec::zlib(1)};
       }
 #else
       if (comp == "zlib") continue;
@@ -233,7 +233,7 @@ int build_fixtures(const std::shared_ptr<zarr::Store>& store) {
     spec.shape = {5, 6};
     spec.chunks = {2, 4};
     spec.dtype = DataType::of(DType::float32);
-    spec.codecs = {zarr::gzip(5)};
+    spec.codecs = {zarr::codec::gzip(5)};
     write_pattern("f4_gzip", spec);
   }
 #endif
@@ -243,7 +243,7 @@ int build_fixtures(const std::shared_ptr<zarr::Store>& store) {
     spec.shape = {5, 6};
     spec.chunks = {2, 4};
     spec.dtype = DataType::of(DType::int32);
-    spec.codecs = {zarr::blosc("lz4", 5, "shuffle")};
+    spec.codecs = {zarr::codec::blosc("lz4", 5, "shuffle")};
     write_pattern("blosc_lz4", spec);
   }
 #endif
@@ -253,7 +253,7 @@ int build_fixtures(const std::shared_ptr<zarr::Store>& store) {
     spec.shape = {5, 6};
     spec.chunks = {2, 4};
     spec.dtype = DataType::of(DType::uint16);
-    spec.codecs = {zarr::zstd(0, false)};
+    spec.codecs = {zarr::codec::zstd(0, false)};
     write_pattern("zstd_v2", spec);
   }
 #endif
@@ -446,7 +446,7 @@ int build_fixtures_v3(const std::shared_ptr<zarr::Store>& store) {
       spec.dtype = dtype;
 #ifdef LIBZARR_HAS_ZLIB
       if (comp == "gzip") {
-        spec.codecs = {zarr::gzip(5)};
+        spec.codecs = {zarr::codec::gzip(5)};
       }
 #else
       if (comp == "gzip") {
@@ -469,7 +469,7 @@ int build_fixtures_v3(const std::shared_ptr<zarr::Store>& store) {
     write_pattern("crc32c", spec);
 #ifdef LIBZARR_HAS_ZLIB
     spec.dtype = DataType::of(DType::int64);
-    spec.codecs = {zarr::gzip(1), {"crc32c", {}}};
+    spec.codecs = {zarr::codec::gzip(1), {"crc32c", {}}};
     write_pattern("gzip_crc32c", spec);
 #endif
   }
@@ -490,10 +490,10 @@ int build_fixtures_v3(const std::shared_ptr<zarr::Store>& store) {
     spec.shape = {5, 6};
     spec.chunks = {2, 4};
     spec.dtype = DataType::of(DType::float64);
-    spec.codecs = {zarr::zstd(0, false)};
+    spec.codecs = {zarr::codec::zstd(0, false)};
     write_pattern("zstd_default", spec);
     spec.dtype = DataType::of(DType::int64);
-    spec.codecs = {zarr::zstd(5, true)};
+    spec.codecs = {zarr::codec::zstd(5, true)};
     write_pattern("zstd_checksum", spec);
   }
 #endif
@@ -547,7 +547,7 @@ int build_fixtures_v3(const std::shared_ptr<zarr::Store>& store) {
     write_pattern("sharded_plain", spec);
 #ifdef LIBZARR_HAS_ZLIB
     spec.dtype = DataType::of(DType::float64);
-    spec.codecs = {zarr::gzip(5)};
+    spec.codecs = {zarr::codec::gzip(5)};
     write_pattern("sharded_gzip", spec);
 #endif
   }

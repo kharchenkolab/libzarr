@@ -15,7 +15,7 @@ int main() try {
   spec.shape = {1000};
   spec.chunks = {250};
   spec.dtype = zarr::DataType::of(zarr::DType::int32);
-  spec.codecs = {zarr::gzip(5)};
+  spec.codecs = {zarr::codec::gzip(5)};
   auto array = zarr::Array::create(store, "counts", spec);
 
   std::vector<std::int32_t> data(1000);

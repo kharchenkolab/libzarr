@@ -25,7 +25,7 @@ int main() try {
   spec.dtype = zarr::DataType::of(zarr::DType::float32);
 #if defined(LIBZARR_HAS_ZLIB)
   // Exercises the codec whose dependency (zlib) the installed config must wire.
-  spec.codecs = {zarr::gzip()};
+  spec.codecs = {zarr::codec::gzip()};
 #endif
   auto arr = root.create_array("temperature", spec);
 

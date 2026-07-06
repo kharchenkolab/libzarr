@@ -440,8 +440,8 @@ TEST_CASE("v3 create/write/read round-trip matrix") {
                                     {"r64", DataType::raw_bytes(8)}};
   std::vector<std::vector<zarr::CodecSpec>> chains = {{}, {{"crc32c", {}}}};
 #ifdef LIBZARR_HAS_ZLIB
-  chains.push_back({zarr::gzip(5)});
-  chains.push_back({zarr::gzip(1), {"crc32c", {}}});
+  chains.push_back({zarr::codec::gzip(5)});
+  chains.push_back({zarr::codec::gzip(1), {"crc32c", {}}});
 #endif
 #ifdef LIBZARR_HAS_BLOSC
   chains.push_back({{"blosc", {{"cname", "lz4"}, {"clevel", 5}, {"shuffle", "shuffle"}}}});
@@ -562,7 +562,7 @@ TEST_CASE("zstd codec round-trip (zarr-python 3's default)") {
     meta.shape = {64};
     meta.chunk_shape = {64};
     meta.dtype = DataType::of(DType::uint8);
-    meta.codecs = {{"bytes", {}}, zarr::zstd(checksum ? 5 : 0, checksum)};
+    meta.codecs = {{"bytes", {}}, zarr::codec::zstd(checksum ? 5 : 0, checksum)};
     const auto pipeline = zarr::CodecPipeline::resolve(meta);
     Bytes chunk(64);
     for (std::size_t i = 0; i < chunk.size(); ++i) {
@@ -579,7 +579,7 @@ TEST_CASE("zstd corrupt/truncated chunks are precise errors") {
   meta.shape = {32};
   meta.chunk_shape = {32};
   meta.dtype = DataType::of(DType::uint8);
-  meta.codecs = {{"bytes", {}}, zarr::zstd()};
+  meta.codecs = {{"bytes", {}}, zarr::codec::zstd()};
   const auto pipeline = zarr::CodecPipeline::resolve(meta);
   CHECK_THROWS_AS((void)pipeline.decode(Bytes{1, 2, 3}), zarr::error);
   Bytes stored = pipeline.encode(Bytes(32, 9));
@@ -619,7 +619,7 @@ TEST_CASE("v3 array with default zarr-python codecs round-trips") {
   spec.shape = {5, 6};
   spec.chunks = {2, 4};
   spec.dtype = DataType::of(DType::float64);
-  spec.codecs = {zarr::zstd(0, false)};  // what zarr-python 3 writes by default
+  spec.codecs = {zarr::codec::zstd(0, false)};  // what zarr-python 3 writes by default
   auto array = zarr::Array::create(store, "z", spec);
   std::vector<double> values(30);
   for (std::size_t i = 0; i < 30; ++i) {
@@ -648,7 +648,7 @@ TEST_CASE("v2 array with zarr-python 2's default blosc round-trips") {
   spec.shape = {5, 6};
   spec.chunks = {2, 4};
   spec.dtype = DataType::of(DType::int32);
-  spec.codecs = {zarr::blosc("lz4", 5, "shuffle")};
+  spec.codecs = {zarr::codec::blosc("lz4", 5, "shuffle")};
   auto array = zarr::Array::create(store, "b", spec);
   std::vector<std::int32_t> values(30);
   for (std::size_t i = 0; i < 30; ++i) {

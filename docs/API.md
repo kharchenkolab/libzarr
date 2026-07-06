@@ -103,11 +103,16 @@
   - `std::vector<std::uint64_t> shard_shape`
   - `std::vector<CodecSpec> index_codecs`
   - `bool index_at_end`
-- `CodecSpec blosc(const std::string& cname = "", int clevel = 5, const std::string& shuffle = "")`
-- `CodecSpec gzip(int level = 5)`
-- `CodecSpec zlib(int level = 5)`
-- `CodecSpec zstd(int level = 0, bool checksum = false)`
 - `[[nodiscard]] Bytes canonical_json_bytes(const json& j)`
+
+### `namespace zarr::codec`
+
+- `[[nodiscard]] CodecSpec blosc(const std::string& cname = "", int clevel = 5, const std::string& shuffle = "")`
+- `[[nodiscard]] CodecSpec crc32c()`
+- `[[nodiscard]] CodecSpec gzip(int level = 5)`
+- `[[nodiscard]] CodecSpec shuffle(int elementsize = 0)`
+- `[[nodiscard]] CodecSpec zlib(int level = 5)`
+- `[[nodiscard]] CodecSpec zstd(int level = 0, bool checksum = false)`
 
 ## `codecs.hpp`
 

@@ -18,6 +18,11 @@ All notable changes to libzarr are documented here. The format follows
   `parse_data_type`/`emit_data_type` and `group_meta_json` → `emit_group_meta`
   (match the v3 spelling). The general JSON parser moved from `zarr::v2::parse_json`
   to `zarr::detail::parse_json` — it is internal, not a v2-specific entry point.
+- **API 1.0 freeze — codec factories namespaced and completed**: `gzip`, `zlib`,
+  `blosc`, `zstd` moved from `zarr::` into `zarr::codec::`, and `codec::crc32c()`
+  / `codec::shuffle()` were added, so every user-specifiable (bytes->bytes) codec
+  now has a factory — no more hand-writing `CodecSpec{"crc32c", {}}`. The
+  structural `bytes`/`transpose` stages remain library-managed (not factories).
 
 ### Fixed
 - **`DataType::of(DType::raw)` throws instead of asserting**: `raw` has no fixed

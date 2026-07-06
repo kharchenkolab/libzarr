@@ -40,24 +40,37 @@ struct CodecSpec {
   json configuration = json::object();
 };
 
-/// Convenience factory: gzip (RFC 1952) at `level` (0-9).
-inline CodecSpec gzip(int level = 5) { return {"gzip", {{"level", level}}}; }
+/// Factories for the bytes->bytes codecs users place in `ArraySpec::codecs`.
+/// (The structural `bytes` and `transpose` stages are managed by the library
+/// and are not specified here.)
+namespace codec {
 
-/// Convenience factory: zlib (RFC 1950) at `level` (0-9). Zarr v2 only.
-inline CodecSpec zlib(int level = 5) { return {"zlib", {{"level", level}}}; }
+/// gzip (RFC 1952) at `level` (0-9).
+[[nodiscard]] inline CodecSpec gzip(int level = 5) { return {"gzip", {{"level", level}}}; }
 
-/// Convenience factory: blosc (v3-style named shuffle: "noshuffle",
-/// "shuffle" or "bitshuffle").
-inline CodecSpec blosc(const std::string& cname = "lz4", int clevel = 5,
-                       const std::string& shuffle = "shuffle") {
+/// zlib (RFC 1950) at `level` (0-9). Zarr v2 only.
+[[nodiscard]] inline CodecSpec zlib(int level = 5) { return {"zlib", {{"level", level}}}; }
+
+/// blosc (v3-style named shuffle: "noshuffle", "shuffle" or "bitshuffle").
+[[nodiscard]] inline CodecSpec blosc(const std::string& cname = "lz4", int clevel = 5,
+                                     const std::string& shuffle = "shuffle") {
   return {"blosc", {{"cname", cname}, {"clevel", clevel}, {"shuffle", shuffle}}};
 }
 
-/// Convenience factory: zstd. Level 0 means zstd's default; `checksum`
-/// appends a frame checksum.
-inline CodecSpec zstd(int level = 0, bool checksum = false) {
+/// zstd. Level 0 means zstd's default; `checksum` appends a frame checksum.
+[[nodiscard]] inline CodecSpec zstd(int level = 0, bool checksum = false) {
   return {"zstd", {{"level", level}, {"checksum", checksum}}};
 }
+
+/// crc32c (Castagnoli) trailing checksum. v3 only.
+[[nodiscard]] inline CodecSpec crc32c() { return {"crc32c", {}}; }
+
+/// shuffle: byte-transposition filter. `elementsize` 0 means the dtype size.
+[[nodiscard]] inline CodecSpec shuffle(int elementsize = 0) {
+  return {"shuffle", {{"elementsize", elementsize}}};
+}
+
+}  // namespace codec
 
 /// Chunk-key scheme. v2: indices joined by a separator ('.' default), rank 0
 /// is "0". v3 "default": "c" prefix + separator-joined indices ('/' default),
