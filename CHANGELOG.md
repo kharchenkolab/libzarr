@@ -6,6 +6,14 @@ All notable changes to libzarr are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **ZIP64 out-of-bounds read** (fuzz-found SEGV): a crafted EOCD with a ZIP64
+  sentinel offset plus a locator pointing past the archive tail read past the
+  end of the held buffer in `ZipReader::locate_directory`. The ZIP64 record is
+  now bounds-checked against the tail (and short `must_read` results rejected),
+  so malformed archives raise a precise `zarr::error` instead of reaching UB.
+  Regression-pinned by the exact crash input in `tests/test_zip.cpp`.
+
 ### Added
 - **Installable CMake package**: `find_package(libzarr CONFIG)` now works. `cmake --install`
   lays down the headers (incl. the vendored JSON, isolated under `include/libzarr-vendor/`),

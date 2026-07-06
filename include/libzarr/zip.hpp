@@ -390,10 +390,21 @@ class ZipReader final : public Store {
     Bytes eocd64;
     if (eocd64_offset >= tail_start) {
       const auto local = static_cast<std::size_t>(eocd64_offset - tail_start);
+      // APPNOTE 4.3.14: the ZIP64 EOCD must lie fully within the archive. A
+      // crafted locator can point past the tail we hold; assigning past end()
+      // is an out-of-bounds read (fuzz-found SEGV).
+      if (local > tail.size() || z::kEocd64Size > tail.size() - local) {
+        throw error(context() + ": ZIP64 end-of-central-directory record out of range");
+      }
       eocd64.assign(tail.begin() + static_cast<std::ptrdiff_t>(local),
                     tail.begin() + static_cast<std::ptrdiff_t>(local + z::kEocd64Size));
     } else {
       eocd64 = must_read(eocd64_offset, z::kEocd64Size);
+    }
+    // must_read returns fewer bytes when the offset runs past EOF; the fixed
+    // field offsets below (rd32/rd64) require the whole record.
+    if (eocd64.size() < z::kEocd64Size) {
+      throw error(context() + ": ZIP64 end-of-central-directory record truncated");
     }
     if (z::rd32(eocd64.data()) != z::kEocd64Sig) {
       throw error(context() + ": bad ZIP64 end-of-central-directory record");
