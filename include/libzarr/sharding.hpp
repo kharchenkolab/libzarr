@@ -27,9 +27,7 @@
 /// leading) index. The array machinery above stays completely unaware, and
 /// nested sharding falls out as ShardStore-wrapping-ShardStore.
 
-namespace zarr {
-
-namespace detail_shard {
+namespace zarr::detail_shard {
 
 inline constexpr std::uint64_t kSentinel = std::numeric_limits<std::uint64_t>::max();
 
@@ -421,8 +419,6 @@ class ShardStore final : public Store {
   std::optional<Assembly> assembly_;
 };
 
-}  // namespace detail_shard
-
-}  // namespace zarr
+}  // namespace zarr::detail_shard
 
 #endif  // LIBZARR_SHARDING_HPP
