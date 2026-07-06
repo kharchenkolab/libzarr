@@ -113,6 +113,19 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y doxygen
       - run: mkdir -p build/docs && doxygen Doxyfile
 
+  # The public API surface is machine-checked: regenerate docs/API.md from the
+  # headers and fail if it changed uncommitted. Any add/remove/signature change
+  # to a public symbol must land with its API.md update, the way the 1.0
+  # freeze contract requires (see docs/COMPATIBILITY.md).
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y clang # clang builtin headers
+      - run: pip install libclang==18.1.1
+      - run: python3 tools/api_inventory.py
+      - run: git diff --exit-code docs/API.md
+
   # The amalgamated single header must stay generatable and compilable.
   amalgamation:
     runs-on: ubuntu-latest

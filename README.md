@@ -107,7 +107,9 @@ omero-zarr) and live public stores — see
 ## Documentation
 
 Rendered API reference: **<https://kharchenkolab.github.io/libzarr/>** (Doxygen, built from
-the headers on every push). Task-oriented recipes are in [SKILL.md](SKILL.md).
+the headers on every push). Task-oriented recipes are in [SKILL.md](SKILL.md). The complete
+public surface is enumerated in [docs/API.md](docs/API.md) (machine-generated and CI-checked),
+and the stability guarantee is in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
 ## Development
 
