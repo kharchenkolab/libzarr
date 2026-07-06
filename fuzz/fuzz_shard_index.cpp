@@ -32,6 +32,22 @@ void probe(const std::uint8_t* data, std::size_t size) {
       }
     }
   }
+
+  // The public façade: decode arbitrary caller-supplied index bytes (4 slots).
+  zarr::ArrayMeta meta;
+  meta.shape = {2, 2};
+  meta.chunk_shape = {1, 1};
+  meta.dtype = zarr::DataType::of(zarr::DType::int32);
+  zarr::ShardLevel lvl;
+  lvl.shard_shape = {2, 2};
+  lvl.index_codecs = {{"bytes", {{"endian", "little"}}}, {"crc32c", {}}};
+  meta.shard_levels = {lvl};
+  for (std::uint64_t slot = 0; slot < 4; ++slot) {
+    try {
+      (void)zarr::shard::extent(meta, zarr::Bytes(data, data + size), slot);
+    } catch (const zarr::error&) {
+    }
+  }
 }
 
 }  // namespace

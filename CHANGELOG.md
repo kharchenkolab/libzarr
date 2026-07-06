@@ -43,6 +43,15 @@ All notable changes to libzarr are documented here. The format follows
   Regression-pinned by the exact crash input in `tests/test_zip.cpp`.
 
 ### Added
+- **Pure shard-index resolution for external readers** (`zarr::shard::place` /
+  `zarr::shard::extent`): a narrow, I/O-free façade mapping an inner-chunk index to
+  its shard object and index location, then decoding caller-fetched index bytes to
+  the chunk's `(offset, nbytes)`. A consumer that owns its own async I/O (a browser
+  fetch loop) can byte-range-read through the shard index while libzarr keeps the
+  drift-prone index math as the single source of truth — no synchronous-Store
+  bridge required. `ShardStore` stays internal; nested levels and both index
+  locations are supported; missing (fill) slots are reported, not thrown. Together
+  with the public `CodecPipeline` this is a complete pure-sync sharded read path.
 - **Machine-checked public API surface**: `tools/api_inventory.py` regenerates
   `docs/API.md` (every symbol in `namespace zarr` outside `detail*`) as a pure
   function of the headers; a CI `api` job fails if the committed copy drifts, so

@@ -183,6 +183,20 @@
 
 ## `sharding.hpp`
 
+### `namespace zarr::shard`
+
+- `struct Extent`
+  - `std::uint64_t offset`
+  - `std::uint64_t nbytes`
+  - `bool missing`
+- `struct Placement`
+  - `std::string shard_key`
+  - `std::uint64_t slot`
+  - `std::uint64_t index_size`
+  - `bool index_at_end`
+- `[[nodiscard]] Extent extent(const ArrayMeta& meta, const Bytes& index_bytes, std::uint64_t slot, std::size_t level = 0)`
+- `[[nodiscard]] Placement place(const ArrayMeta& meta, const std::string& path, const std::vector<std::uint64_t>& inner_index, std::size_t level = 0)`
+
 ## `v2.hpp`
 
 ### `namespace zarr::v2`

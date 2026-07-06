@@ -113,11 +113,10 @@ def enum_record(head, body):
 
 
 def emitting(stack):
-    if not any(f[0] == "ns" and f[1] == "zarr" for f in stack):
+    ns_segs = [s for f in stack if f[0] == "ns" for s in f[1].split("::")]
+    if "zarr" not in ns_segs or any(s.startswith("detail") for s in ns_segs):
         return False
     for f in stack:
-        if f[0] == "ns" and f[2]:
-            return False
         if f[0] == "agg" and f[3] not in ("public", "protected"):
             return False
     return True
@@ -147,7 +146,7 @@ def parse_header(path):
     i, n = 0, len(text)
 
     def ns_path():
-        return "::".join(f[1] for f in stack if f[0] == "ns")
+        return "::".join(f[1] for f in stack if f[0] == "ns" and f[1])
 
     def record_member(rendered_kind_pair):
         top = stack[-1]
@@ -206,10 +205,12 @@ def parse_header(path):
             del buf[:]
             magg = re.match(r"^(class|struct)\s+(\w+)\b(.*)$", head)
             if head.startswith("namespace"):
+                # One frame per `namespace` statement (matching its single closing
+                # brace), even for a concatenated `namespace a::b {`.
                 m = re.match(r"^namespace\s+([\w:]+)$", head)
-                segs = (m.group(1).split("::") if m else [""])
-                for seg in segs:
-                    stack.append(["ns", seg, seg.startswith("detail")])
+                name = m.group(1) if m else ""  # anonymous namespace -> ""
+                is_detail = any(s.startswith("detail") for s in name.split("::"))
+                stack.append(["ns", name, is_detail])
             elif magg and "(" not in head:
                 rest = re.sub(r"^final\b", "", magg.group(3).strip()).strip()
                 bases = ""
@@ -252,7 +253,7 @@ def parse_header(path):
                 if frame[0] == "agg" and emitting(stack):
                     name, bases = frame[2]
                     head = f"{frame[1]} {name}" + (f" : {bases}" if bases else "")
-                    ns = "::".join(f[1] for f in stack if f[0] == "ns")
+                    ns = "::".join(f[1] for f in stack if f[0] == "ns" and f[1])
                     symbols.append((ns, "type", head, frame[4]))
             i += 1
             continue
