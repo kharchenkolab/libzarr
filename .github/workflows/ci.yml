@@ -134,6 +134,25 @@ jobs:
           printf '#include "zarr.hpp"\nint main() { zarr::MemoryStore s; return 0; }\n' > build/t.cpp
           g++ -std=c++17 -Wall -Wextra -Werror -Ibuild -Ithird_party build/t.cpp -o build/t && ./build/t
 
+  # Decode-only zstd: the reader-only build (LIBZARR_ZSTD_DECODE_ONLY) must read a
+  # zstd chunk, throw on encode, and — the point — reference no ZSTD_compress*
+  # symbols, so a WASM consumer can link zstd's decompress-only amalgamation.
+  zstd-decode-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libzstd-dev
+      - run: cmake -S . -B build -DLIBZARR_WITH_ZSTD=ON
+      - run: cmake --build build --target zstd_decode_only_test -j
+      - run: ctest --test-dir build -R zstd_decode_only --output-on-failure
+      - run: |
+          obj=$(find build -name 'test_zstd_decode_only.cpp.o')
+          echo "checking $obj for zstd compress references"
+          if nm "$obj" | grep -iE 'ZSTD_(compress|createCCtx|CCtx_setParameter|compressBound|freeCCtx)'; then
+            echo "ERROR: decode-only object references zstd compress symbols"; exit 1
+          fi
+          echo "OK: no zstd compress references"
+
   # The installed CMake package must be consumable by a downstream project via
   # find_package(libzarr CONFIG) — the contract the vcpkg port depends on. Each
   # config installs to a throwaway prefix and builds a standalone consumer

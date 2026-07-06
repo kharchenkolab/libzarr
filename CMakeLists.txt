@@ -155,6 +155,16 @@ if(LIBZARR_BUILD_TESTS)
   target_link_libraries(libzarr_tests PRIVATE libzarr::libzarr libzarr_dev_flags)
   add_test(NAME libzarr_tests COMMAND libzarr_tests)
 
+  # Decode-only zstd: a TU compiled with LIBZARR_ZSTD_DECODE_ONLY must still read
+  # a zstd chunk and must throw (not fail to link) on encode. The CI `zstd-decode-only`
+  # job additionally asserts the object references no ZSTD_compress* symbols.
+  if(LIBZARR_WITH_ZSTD AND NOT EMSCRIPTEN)
+    add_executable(zstd_decode_only_test tests/test_zstd_decode_only.cpp)
+    target_compile_definitions(zstd_decode_only_test PRIVATE LIBZARR_ZSTD_DECODE_ONLY)
+    target_link_libraries(zstd_decode_only_test PRIVATE libzarr::libzarr libzarr_dev_flags)
+    add_test(NAME zstd_decode_only COMMAND zstd_decode_only_test)
+  endif()
+
   # Cross-implementation conformance against zarr-python, both directions.
   if(NOT EMSCRIPTEN)
     add_executable(conformance_tool tests/conformance_tool.cpp)

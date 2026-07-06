@@ -303,6 +303,8 @@ def main():
         "- `LIBZARR_HAS_ZLIB`, `LIBZARR_HAS_BLOSC`, `LIBZARR_HAS_ZSTD` — set when the",
         "  matching codec is compiled in; a codec header `#error`s without its flag.",
         "- `LIBZARR_EXTERNAL_JSON` — use an external nlohmann/json instead of the vendored copy.",
+        "- `LIBZARR_ZSTD_DECODE_ONLY` — with zstd, omit the compress side (reader-only build;",
+        "  encoding a zstd chunk throws). Lets a consumer link zstd's decompress-only build.",
         "- `LIBZARR_DEPRECATED(msg)` — marks a symbol deprecated (see COMPATIBILITY.md).",
         "",
     ]

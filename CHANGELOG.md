@@ -43,6 +43,13 @@ All notable changes to libzarr are documented here. The format follows
   Regression-pinned by the exact crash input in `tests/test_zip.cpp`.
 
 ### Added
+- **`LIBZARR_ZSTD_DECODE_ONLY` build option** (default off): with `LIBZARR_HAS_ZSTD`,
+  omits the zstd compress side so a read-only consumer (a WASM viewer) can link
+  zstd's decompress-only amalgamation (`zstddeclib.c`) instead of the full library.
+  Reading a zstd chunk is unchanged; encoding one throws a clear `zarr::error` at
+  the single call site rather than failing to link. Guarded by a CI job that
+  asserts the reader-only object references no `ZSTD_compress*` symbols. Full
+  behavior — and the whole codec set — is intact when the flag is off.
 - **Pure shard-index resolution for external readers** (`zarr::shard::place` /
   `zarr::shard::extent`): a narrow, I/O-free façade mapping an inner-chunk index to
   its shard object and index location, then decoding caller-fetched index bytes to
