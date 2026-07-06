@@ -64,7 +64,7 @@ class Group {
     // v3 probe.
     const std::string v3_key = v3::meta_key(path);
     if (const auto bytes = store->read(v3_key)) {
-      const json doc = v2::parse_json(*bytes, v3_key);
+      const json doc = detail::parse_json(*bytes, v3_key);
       if (doc.is_object() && doc.value("node_type", "") == std::string("array")) {
         throw error("'" + path + "' is an array, not a group");
       }
@@ -109,7 +109,7 @@ class Group {
       if (!bytes) {
         throw error(key + ": metadata disappeared");
       }
-      json doc = v2::parse_json(*bytes, key);
+      json doc = detail::parse_json(*bytes, key);
       if (attributes_.empty()) {
         doc.erase("attributes");
       } else {
@@ -203,7 +203,7 @@ class Group {
     if (!bytes) {
       return std::nullopt;
     }
-    return v2::parse_json(*bytes, key);
+    return detail::parse_json(*bytes, key);
   }
 
   [[nodiscard]] Group open_v3_child_group(const std::string& target) const {
@@ -234,7 +234,7 @@ class Group {
       if (!bytes) {
         return std::nullopt;
       }
-      return v2::parse_json(*bytes, key);
+      return detail::parse_json(*bytes, key);
     };
 
     const std::string group_key = v2::meta_key(path, v2::kGroupSuffix);
@@ -276,7 +276,7 @@ class Group {
       if (format == ZarrFormat::v3) {
         const std::string key = v3::meta_key(node);
         if (const auto bytes = store.read(key)) {
-          const json doc = v2::parse_json(*bytes, key);
+          const json doc = detail::parse_json(*bytes, key);
           if (doc.is_object() && doc.value("node_type", "") == std::string("array")) {
             throw error("'" + node + "' is an array; cannot create a group inside it");
           }
@@ -286,7 +286,7 @@ class Group {
       } else {
         const std::string key = v2::meta_key(node, v2::kGroupSuffix);
         if (!store.exists(key)) {
-          v2::write_meta_key(store, key, v2::group_meta_json());
+          v2::write_meta_key(store, key, v2::emit_group_meta());
         }
       }
     }

@@ -157,6 +157,17 @@ auto guard_json(const std::string& ctx, const Fn& fn) -> decltype(fn()) {
   }
 }
 
+/// Parses bytes as JSON with a precise, contextual error. Catches every
+/// nlohmann exception class: the parser throws out_of_range (not just
+/// parse_error) for e.g. number overflow — found by fuzzing.
+inline json parse_json(const Bytes& bytes, const std::string& ctx) {
+  try {
+    return json::parse(bytes.begin(), bytes.end());
+  } catch (const json::exception& e) {
+    throw error(ctx + ": " + e.what());
+  }
+}
+
 /// Reads a JSON value as uint64. Handles nlohmann's split integer storage:
 /// parsed non-negative literals are number_unsigned, programmatically
 /// constructed ints are number_integer.

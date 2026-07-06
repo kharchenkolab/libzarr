@@ -63,7 +63,7 @@ array.write_region({1, 2}, {3, 4}, region.data(), region.size() * sizeof(float))
 
 ```cpp
 zarr::zip_pack(*store, *dest, "data.zarr.zip");            // STORED entries, ZIP64-aware
-auto zipped = std::make_shared<zarr::ZipReader>(dest, "data.zarr.zip");
+auto zipped = std::make_shared<zarr::ZipStore>(dest, "data.zarr.zip");
 auto array  = zarr::Group::open(zipped).open_array("temperature");
 ```
 

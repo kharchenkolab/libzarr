@@ -22,7 +22,7 @@
 /// Single-file archives: a whole store packed into one ZIP with STORED
 /// (uncompressed) entries only, so every entry — and any byte range inside
 /// it — stays byte-range-readable through the archive (chunk codecs still
-/// apply; the zip layer never re-compresses). ZIP64-aware. ZipReader is a
+/// apply; the zip layer never re-compresses). ZIP64-aware. ZipStore is a
 /// read-only Store view over an archive held in any other Store, using
 /// nothing but read_range.
 
@@ -212,14 +212,14 @@ inline void append_end_records(Bytes& out, std::uint64_t count, std::uint64_t ce
 /// `archive_key` inside another Store. All access goes through read_range, so
 /// a remote archive is never downloaded whole; entry reads cost one range
 /// request (plus one 30-byte header read the first time an entry is touched).
-class ZipReader final : public Store {
+class ZipStore final : public Store {
  public:
   /// Opens the archive at `archive_key` in `source` (parses its central
   /// directory with one size probe plus one suffix range read).
-  ZipReader(std::shared_ptr<Store> source, std::string archive_key)
+  ZipStore(std::shared_ptr<Store> source, std::string archive_key)
       : source_(std::move(source)), key_(std::move(archive_key)) {
     if (!source_) {
-      throw error("ZipReader: null store");
+      throw error("ZipStore: null store");
     }
     parse_directory();
   }
@@ -272,9 +272,9 @@ class ZipReader final : public Store {
   }
 
   void write(std::string_view /*key*/, Bytes /*value*/) override {
-    throw error("ZipReader is read-only");
+    throw error("ZipStore is read-only");
   }
-  void erase(std::string_view /*key*/) override { throw error("ZipReader is read-only"); }
+  void erase(std::string_view /*key*/) override { throw error("ZipStore is read-only"); }
 
   [[nodiscard]] std::vector<std::string> list_prefix(std::string_view prefix) override {
     check_prefix(prefix);

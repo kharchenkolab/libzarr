@@ -87,7 +87,7 @@ automatically, v3 consolidation is explicit (`zarr::v3::consolidate(*store)`).
 
 ```cpp
 zarr::zip_pack(*store, *dest_store, "dataset.zarr.zip");        // STORED entries, ZIP64-aware
-auto zipped = std::make_shared<zarr::ZipReader>(dest_store, "dataset.zarr.zip");
+auto zipped = std::make_shared<zarr::ZipStore>(dest_store, "dataset.zarr.zip");
 auto array  = zarr::Group::open(zipped).open_array("temperature");  // reads use byte ranges
 ```
 

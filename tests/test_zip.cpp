@@ -8,7 +8,7 @@
 
 using zarr::Bytes;
 using zarr::MemoryStore;
-using zarr::ZipReader;
+using zarr::ZipStore;
 
 namespace {
 
@@ -23,11 +23,11 @@ std::shared_ptr<MemoryStore> sample_store() {
   return store;
 }
 
-std::shared_ptr<ZipReader> packed(const std::shared_ptr<MemoryStore>& source,
+std::shared_ptr<ZipStore> packed(const std::shared_ptr<MemoryStore>& source,
                                   bool force_zip64 = false) {
   auto archive = std::make_shared<MemoryStore>();
   zarr::zip_pack(*source, *archive, "store.zip", "", force_zip64);
-  return std::make_shared<ZipReader>(archive, "store.zip");
+  return std::make_shared<ZipStore>(archive, "store.zip");
 }
 
 }  // namespace
@@ -127,19 +127,19 @@ TEST_CASE("corrupt archives are precise errors") {
 
   SUBCASE("not a zip") {
     archive->write("bad.zip", Bytes(100, 0x42));
-    CHECK_THROWS_AS((void)ZipReader(archive, "bad.zip"), zarr::error);
+    CHECK_THROWS_AS((void)ZipStore(archive, "bad.zip"), zarr::error);
   }
   SUBCASE("too small") {
     archive->write("tiny.zip", Bytes{1, 2, 3});
-    CHECK_THROWS_AS((void)ZipReader(archive, "tiny.zip"), zarr::error);
+    CHECK_THROWS_AS((void)ZipStore(archive, "tiny.zip"), zarr::error);
   }
-  SUBCASE("missing") { CHECK_THROWS_AS((void)ZipReader(archive, "absent.zip"), zarr::error); }
+  SUBCASE("missing") { CHECK_THROWS_AS((void)ZipStore(archive, "absent.zip"), zarr::error); }
   SUBCASE("truncated central directory") {
     auto bytes = *archive->read("store.zip");
     // Chop out a byte from the middle (central directory area), keep EOCD.
     bytes.erase(bytes.begin() + static_cast<std::ptrdiff_t>(bytes.size() / 2));
     archive->write("trunc.zip", std::move(bytes));
-    CHECK_THROWS_AS((void)ZipReader(archive, "trunc.zip"), zarr::error);
+    CHECK_THROWS_AS((void)ZipStore(archive, "trunc.zip"), zarr::error);
   }
   SUBCASE("zip64 locator points past the tail (fuzz: OOB read in locate_directory)") {
     // EOCD with a ZIP64 sentinel offset drives the reader into the ZIP64 path;
@@ -157,7 +157,7 @@ TEST_CASE("corrupt archives are precise errors") {
         0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x03, 0x00, 0x9f, 0xff, 0xff,
         0xbf, 0xff, 0xff, 0xff, 0xff, 0x08, 0x00, 0x00, 0x00, 0x8e, 0x00, 0x00, 0x00, 0x00, 0x00};
     archive->write("zip64_oob.zip", crash);
-    CHECK_THROWS_AS((void)ZipReader(archive, "zip64_oob.zip"), zarr::error);
+    CHECK_THROWS_AS((void)ZipStore(archive, "zip64_oob.zip"), zarr::error);
   }
 }
 
@@ -211,7 +211,7 @@ TEST_CASE("compressed entries are rejected (STORED-only scope)") {
 
   auto archive = std::make_shared<MemoryStore>();
   archive->write("deflated.zip", std::move(out));
-  ZipReader zip(archive, "deflated.zip");  // parsing succeeds
+  ZipStore zip(archive, "deflated.zip");  // parsing succeeds
   CHECK(zip.exists("x"));
   CHECK_THROWS_WITH_AS(
       (void)zip.read("x"),

@@ -733,7 +733,7 @@ inline void consolidate(Store& store) {
   if (!root_bytes) {
     throw error("v3::consolidate: no zarr.json at the store root");
   }
-  json root = v2::parse_json(*root_bytes, kMetaKey);
+  json root = detail::parse_json(*root_bytes, kMetaKey);
   json metadata = json::object();
   for (const std::string& key : store.list_prefix("")) {
     if (key == kMetaKey || !detail::ends_with(key, std::string("/") + kMetaKey)) {
@@ -741,7 +741,7 @@ inline void consolidate(Store& store) {
     }
     const std::string path = key.substr(0, key.size() - std::string(kMetaKey).size() - 1);
     if (const auto bytes = store.read(key)) {
-      metadata[path] = v2::parse_json(*bytes, key);
+      metadata[path] = detail::parse_json(*bytes, key);
     }
   }
   root["consolidated_metadata"] = {

@@ -152,7 +152,7 @@ int verify_store(const std::shared_ptr<zarr::Store>& store, const std::string& w
     } else if (key.size() > v3_suffix.size() &&
                key.compare(key.size() - v3_suffix.size(), v3_suffix.size(), v3_suffix) == 0) {
       // v3: only nodes whose zarr.json declares an array.
-      const auto doc = zarr::v2::parse_json(*store->read(key), key);
+      const auto doc = zarr::detail::parse_json(*store->read(key), key);
       if (!doc.is_object() || doc.value("node_type", "") != std::string("array")) {
         continue;
       }
@@ -337,7 +337,7 @@ int verify_manifest(const std::string& dir) {
   if (!bytes) {
     throw zarr::error(dir + ": no manifest.json");
   }
-  const zarr::json manifest = zarr::v2::parse_json(*bytes, "manifest.json");
+  const zarr::json manifest = zarr::detail::parse_json(*bytes, "manifest.json");
   int count = 0;
   for (const auto& item : manifest.at("arrays").items()) {
     const std::string& path = item.key();
@@ -375,7 +375,7 @@ int probe_metadata(const std::string& dir) {
     if (key == v2_suffix || zarr::detail::ends_with(key, "/" + v2_suffix)) {
       path = key.size() == v2_suffix.size() ? "" : key.substr(0, key.size() - v2_suffix.size() - 1);
     } else if (key == v3_suffix || zarr::detail::ends_with(key, "/" + v3_suffix)) {
-      const auto doc = zarr::v2::parse_json(*store->read(key), key);
+      const auto doc = zarr::detail::parse_json(*store->read(key), key);
       if (!doc.is_object() || doc.value("node_type", "") != std::string("array")) {
         continue;
       }
@@ -592,7 +592,7 @@ int dispatch(const std::string& mode, const std::string& target) {
     if (!root) {
       throw zarr::error(target + ": no v3 root zarr.json");
     }
-    const auto doc = zarr::v2::parse_json(*root, "zarr.json");
+    const auto doc = zarr::detail::parse_json(*root, "zarr.json");
     if (!doc.is_object() || !doc.contains("consolidated_metadata")) {
       throw zarr::error(target + ": v3 root has no inline consolidated_metadata");
     }
@@ -604,7 +604,7 @@ int dispatch(const std::string& mode, const std::string& target) {
   }
   if (mode == "read-zip") {
     auto [dir, name] = split_zip_path(target);
-    return verify_store(std::make_shared<zarr::ZipReader>(std::move(dir), name), target);
+    return verify_store(std::make_shared<zarr::ZipStore>(std::move(dir), name), target);
   }
   if (mode == "write-zip") {
     auto staging = std::make_shared<zarr::MemoryStore>();

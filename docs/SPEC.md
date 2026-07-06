@@ -61,7 +61,7 @@ and live public stores is validated locally via `tests/wild/` — no data is com
 
 | Feature | READ | WRITE | Tests | Notes |
 |---|---|---|---|---|
-| STORED-entry ZIP as a Store (`ZipReader` / `zip_pack`) | full | full | unit:test_zip.cpp, conf:zip both directions vs zarr-python ZipStore | all access via `read_range`; entries stay byte-range-readable |
+| STORED-entry ZIP as a Store (`ZipStore` / `zip_pack`) | full | full | unit:test_zip.cpp, conf:zip both directions vs zarr-python ZipStore | all access via `read_range`; entries stay byte-range-readable |
 | ZIP64 | full | full (automatic; `force_zip64` for tests) | unit:test_zip.cpp#zip64 | |
 | compressed (non-STORED) entries | rejected | rejected | unit:test_zip.cpp#compressed-entries | scope guard: ranges must map 1:1 to archive bytes |
 | multi-disk archives, encryption | rejected | rejected | unit:test_zip.cpp | |

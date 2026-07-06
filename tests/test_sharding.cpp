@@ -134,7 +134,7 @@ TEST_CASE("sharded metadata round-trips through emission") {
 #endif
   (void)zarr::Array::create(store, "s", spec);
 
-  const auto doc = zarr::v2::parse_json(*store->read("s/zarr.json"), "s/zarr.json");
+  const auto doc = zarr::detail::parse_json(*store->read("s/zarr.json"), "s/zarr.json");
   CHECK(doc.at("chunk_grid").at("configuration").at("chunk_shape") == json::array({4, 4}));
   REQUIRE(doc.at("codecs").size() == 1);
   const json& sharding = doc.at("codecs").at(0);

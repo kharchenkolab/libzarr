@@ -16,7 +16,7 @@ namespace {
 void probe(const zarr::Bytes& bytes) {
   zarr::json doc;
   try {
-    doc = zarr::v2::parse_json(bytes, "fuzz");
+    doc = zarr::detail::parse_json(bytes, "fuzz");
   } catch (const zarr::error&) {
     return;
   }

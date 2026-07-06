@@ -37,17 +37,6 @@ inline std::string meta_key(const std::string& path, const char* suffix) {
   return path.empty() ? suffix : path + "/" + suffix;
 }
 
-/// Parses bytes as JSON with a precise, contextual error. Catches every
-/// nlohmann exception class: the parser throws out_of_range (not just
-/// parse_error) for e.g. number overflow — found by fuzzing.
-inline json parse_json(const Bytes& bytes, const std::string& ctx) {
-  try {
-    return json::parse(bytes.begin(), bytes.end());
-  } catch (const json::exception& e) {
-    throw error(ctx + ": " + e.what());
-  }
-}
-
 // ---- dtype ------------------------------------------------------------------
 
 /// A parsed v2 dtype string: the element type plus its stored byte order.
@@ -134,7 +123,7 @@ DataType dtype_of_code(char code, std::uint64_t size, const Fail& fail) {
 
 /// Parses a v2 dtype string (`[<>|][biufV]<size>`). Read-supported kinds only;
 /// everything else fails with a precise error naming the dtype.
-inline ParsedDType parse_dtype(const std::string& text, const std::string& ctx) {
+inline ParsedDType parse_data_type(const std::string& text, const std::string& ctx) {
   const auto fail = [&](const char* why) { throw error(ctx + ": dtype '" + text + "': " + why); };
   if (text.size() < 3) {
     fail("expected the form '<f8', '|u1', ...");
@@ -159,7 +148,7 @@ inline ParsedDType parse_dtype(const std::string& text, const std::string& ctx) 
 /// Emits the canonical v2 dtype string. `big_endian` is preserved from an
 /// opened array (we never *create* big-endian arrays, but re-emitting an
 /// opened one must not lie about its chunk bytes).
-inline std::string emit_dtype(DataType dt, bool big_endian) {
+inline std::string emit_data_type(DataType dt, bool big_endian) {
   const char order_multi = big_endian ? '>' : '<';
   switch (dt.kind) {
     case DType::boolean:
@@ -454,7 +443,7 @@ inline ArrayMeta parse_array_meta_impl(const json& j, const std::string& ctx) {
   if (!dtype.is_string()) {
     throw error(ctx + ": structured dtypes are not supported");
   }
-  const ParsedDType parsed = parse_dtype(dtype.get<std::string>(), ctx);
+  const ParsedDType parsed = parse_data_type(dtype.get<std::string>(), ctx);
   meta.dtype = parsed.dtype;
 
   const json& order = require("order");
@@ -566,7 +555,7 @@ inline json emit_array_meta(const ArrayMeta& meta) {
       throw error("v2 cannot represent codec '" + codec.name + "'");
     }
   }
-  j["dtype"] = emit_dtype(meta.dtype, big_endian);
+  j["dtype"] = emit_data_type(meta.dtype, big_endian);
   j["order"] = f_order ? "F" : "C";
   return j;
 }
@@ -574,7 +563,7 @@ inline json emit_array_meta(const ArrayMeta& meta) {
 // ---- groups / chunk keys ------------------------------------------------------
 
 /// The (only) content of a v2 group document.
-inline json group_meta_json() { return json{{"zarr_format", 2}}; }
+inline json emit_group_meta() { return json{{"zarr_format", 2}}; }
 
 /// Validates a .zgroup document.
 inline void check_group_meta(const json& j, const std::string& ctx) {
@@ -608,7 +597,7 @@ inline std::string chunk_key(const std::vector<std::uint64_t>& index, char separ
 inline void write_meta_key(Store& store, const std::string& key, const json& value) {
   store.write(key, canonical_json_bytes(value));
   if (auto existing = store.read(kConsolidatedKey)) {
-    json c = parse_json(*existing, kConsolidatedKey);
+    json c = detail::parse_json(*existing, kConsolidatedKey);
     c["metadata"][key] = value;
     store.write(kConsolidatedKey, canonical_json_bytes(c));
   }
@@ -618,7 +607,7 @@ inline void write_meta_key(Store& store, const std::string& key, const json& val
 inline void erase_meta_key(Store& store, const std::string& key) {
   store.erase(key);
   if (auto existing = store.read(kConsolidatedKey)) {
-    json c = parse_json(*existing, kConsolidatedKey);
+    json c = detail::parse_json(*existing, kConsolidatedKey);
     auto meta_it = c.find("metadata");
     if (meta_it != c.end()) {
       meta_it->erase(key);
@@ -639,7 +628,7 @@ inline void consolidate(Store& store) {
     if (leaf_is(kArraySuffix) || leaf_is(kGroupSuffix) || leaf_is(kAttrsSuffix)) {
       const auto bytes = store.read(key);
       if (bytes) {
-        metadata[key] = parse_json(*bytes, key);
+        metadata[key] = detail::parse_json(*bytes, key);
       }
     }
   }
@@ -653,7 +642,7 @@ inline std::optional<json> read_consolidated(Store& store) {
   if (!bytes) {
     return std::nullopt;
   }
-  json c = parse_json(*bytes, kConsolidatedKey);
+  json c = detail::parse_json(*bytes, kConsolidatedKey);
   if (!c.is_object() || c.value("zarr_consolidated_format", std::int64_t{0}) != 1 ||
       !c.contains("metadata") || !c["metadata"].is_object()) {
     throw error(std::string(kConsolidatedKey) + ": unrecognized consolidated metadata format");

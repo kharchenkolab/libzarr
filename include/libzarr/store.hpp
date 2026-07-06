@@ -209,8 +209,9 @@ class MemoryStore final : public Store {
     return out;
   }
 
-  /// Number of keys held.
-  [[nodiscard]] std::size_t size() const { return map_.size(); }
+  /// Number of keys held. (Named `key_count`, not `size`, to avoid colliding
+  /// with `Store::size(key)`, which returns a value's byte length.)
+  [[nodiscard]] std::size_t key_count() const { return map_.size(); }
 
  private:
   static bool starts_with(std::string_view text, std::string_view prefix) {

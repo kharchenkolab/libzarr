@@ -36,21 +36,21 @@ TEST_CASE("MemoryStore read/write/exists/erase") {
 
   CHECK_FALSE(store.exists("a/b"));
   CHECK(store.read("a/b") == std::nullopt);
-  CHECK(store.size() == 0);
+  CHECK(store.key_count() == 0);
 
   store.write("a/b", as_bytes("hello"));
   CHECK(store.exists("a/b"));
   CHECK(store.read("a/b") == as_bytes("hello"));
-  CHECK(store.size() == 1);
+  CHECK(store.key_count() == 1);
 
   store.write("a/b", as_bytes("replaced"));
   CHECK(store.read("a/b") == as_bytes("replaced"));
-  CHECK(store.size() == 1);
+  CHECK(store.key_count() == 1);
 
   store.erase("a/b");
   CHECK_FALSE(store.exists("a/b"));
   store.erase("a/b");  // erasing an absent key is a no-op
-  CHECK(store.size() == 0);
+  CHECK(store.key_count() == 0);
 }
 
 TEST_CASE("MemoryStore list_prefix") {

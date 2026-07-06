@@ -46,7 +46,7 @@
   - `void erase(std::string_view key) override`
   - `[[nodiscard]] std::vector<std::string> list_prefix(std::string_view prefix) override`
   - `[[nodiscard]] DirListing list_dir(std::string_view prefix) override`
-  - `[[nodiscard]] std::size_t size() const`
+  - `[[nodiscard]] std::size_t key_count() const`
 - `class Store`
   - `[[nodiscard]] virtual std::optional<Bytes> read(std::string_view key) = 0`
   - `[[nodiscard]] virtual std::optional<Bytes> read_range(std::string_view key, ByteRange range)`
@@ -189,14 +189,13 @@
   - `DataType dtype`
   - `bool big_endian`
 - `ArrayMeta parse_array_meta(const json& j, const std::string& ctx)`
-- `ParsedDType parse_dtype(const std::string& text, const std::string& ctx)`
+- `ParsedDType parse_data_type(const std::string& text, const std::string& ctx)`
 - `json emit_array_meta(const ArrayMeta& meta)`
-- `json group_meta_json()`
-- `json parse_json(const Bytes& bytes, const std::string& ctx)`
+- `json emit_group_meta()`
 - `std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::string& ctx)`
 - `std::optional<json> read_consolidated(Store& store)`
 - `std::string chunk_key(const std::vector<std::uint64_t>& index, char separator)`
-- `std::string emit_dtype(DataType dt, bool big_endian)`
+- `std::string emit_data_type(DataType dt, bool big_endian)`
 - `std::string meta_key(const std::string& path, const char* suffix)`
 - `void check_group_meta(const json& j, const std::string& ctx)`
 - `void consolidate(Store& store)`
@@ -227,8 +226,8 @@
 
 ### `namespace zarr`
 
-- `class ZipReader : Store`
-  - `ZipReader(std::shared_ptr<Store> source, std::string archive_key)`
+- `class ZipStore : Store`
+  - `ZipStore(std::shared_ptr<Store> source, std::string archive_key)`
   - `[[nodiscard]] std::optional<Bytes> read(std::string_view key) override`
   - `[[nodiscard]] std::optional<Bytes> read_range(std::string_view key, ByteRange range) override`
   - `[[nodiscard]] std::optional<std::uint64_t> size(std::string_view key) override`

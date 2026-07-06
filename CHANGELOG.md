@@ -12,6 +12,12 @@ All notable changes to libzarr are documented here. The format follows
   `Array` (never user-constructed) and only partially implemented `Store` (listing
   threw); hiding them keeps the sharding implementation free to evolve without a
   breaking change. Sharded arrays are unaffected — still driven by `ArraySpec::shards`.
+- **API 1.0 freeze — naming**: `ZipReader` → `ZipStore` (matches the `*Store`
+  family); `MemoryStore::size()` → `key_count()` (no longer collides with
+  `Store::size(key)`, a value's byte length); v2 `parse_dtype`/`emit_dtype` →
+  `parse_data_type`/`emit_data_type` and `group_meta_json` → `emit_group_meta`
+  (match the v3 spelling). The general JSON parser moved from `zarr::v2::parse_json`
+  to `zarr::detail::parse_json` — it is internal, not a v2-specific entry point.
 
 ### Fixed
 - **`DataType::of(DType::raw)` throws instead of asserting**: `raw` has no fixed

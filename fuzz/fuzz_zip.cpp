@@ -12,7 +12,7 @@ void probe(const std::uint8_t* data, std::size_t size) {
   auto store = std::make_shared<zarr::MemoryStore>();
   store->write("f.zip", zarr::Bytes(data, data + size));
   try {
-    zarr::ZipReader zip(store, "f.zip");
+    zarr::ZipStore zip(store, "f.zip");
     for (const std::string& key : zip.list_prefix("")) {
       try {
         (void)zip.read(key);

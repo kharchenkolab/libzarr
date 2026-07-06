@@ -181,7 +181,7 @@ class Array {
       if (!bytes) {
         return std::nullopt;
       }
-      return v2::parse_json(*bytes, key);
+      return detail::parse_json(*bytes, key);
     };
 
     // Probe order: zarr.json first, so v3 opens cost one round-trip.
@@ -332,7 +332,7 @@ class Array {
       if (!bytes) {
         throw error(key + ": metadata disappeared");
       }
-      json doc = v2::parse_json(*bytes, key);
+      json doc = detail::parse_json(*bytes, key);
       if (meta_.attributes.empty()) {
         doc.erase("attributes");
       } else {

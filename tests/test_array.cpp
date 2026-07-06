@@ -274,7 +274,7 @@ TEST_CASE("consolidated metadata") {
   REQUIRE(store->exists(".zmetadata"));
 
   SUBCASE("contains every metadata document") {
-    const auto doc = zarr::v2::parse_json(*store->read(".zmetadata"), ".zmetadata");
+    const auto doc = zarr::detail::parse_json(*store->read(".zmetadata"), ".zmetadata");
     CHECK(doc.at("zarr_consolidated_format") == 1);
     CHECK(doc.at("metadata").contains(".zgroup"));
     CHECK(doc.at("metadata").contains("a/.zarray"));
@@ -296,12 +296,12 @@ TEST_CASE("consolidated metadata") {
     spec2.chunks = {2};
     spec2.dtype = DataType::of(DType::uint8);
     group.create_array("b", spec2);
-    const auto doc = zarr::v2::parse_json(*store->read(".zmetadata"), ".zmetadata");
+    const auto doc = zarr::detail::parse_json(*store->read(".zmetadata"), ".zmetadata");
     CHECK(doc.at("metadata").contains("b/.zarray"));
 
     // attribute removal drops the .zattrs entry too
     group.open_array("a").set_attributes(json::object());
-    const auto doc2 = zarr::v2::parse_json(*store->read(".zmetadata"), ".zmetadata");
+    const auto doc2 = zarr::detail::parse_json(*store->read(".zmetadata"), ".zmetadata");
     CHECK_FALSE(doc2.at("metadata").contains("a/.zattrs"));
   }
 }
@@ -325,7 +325,7 @@ TEST_CASE("compressed array round-trip (gzip and zlib)") {
     array.write(values.data(), 800);
     CHECK(read_all<double>(zarr::Array::open(store, "c")) == values);
 
-    const auto meta_doc = zarr::v2::parse_json(*store->read("c/.zarray"), "c/.zarray");
+    const auto meta_doc = zarr::detail::parse_json(*store->read("c/.zarray"), "c/.zarray");
     CHECK(meta_doc.at("compressor").at("id") == codec);
   }
 }

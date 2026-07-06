@@ -38,7 +38,7 @@ TEST_CASE("DataType::of rejects raw") {
 }
 
 TEST_CASE("v2 dtype parsing") {
-  const auto parse = [](const char* s) { return zarr::v2::parse_dtype(s, "test"); };
+  const auto parse = [](const char* s) { return zarr::v2::parse_data_type(s, "test"); };
 
   CHECK(parse("|b1").dtype == DataType::of(DType::boolean));
   CHECK(parse("|i1").dtype == DataType::of(DType::int8));
@@ -65,12 +65,12 @@ TEST_CASE("v2 dtype parsing") {
 }
 
 TEST_CASE("v2 dtype emission is canonical") {
-  CHECK(zarr::v2::emit_dtype(DataType::of(DType::boolean), false) == "|b1");
-  CHECK(zarr::v2::emit_dtype(DataType::of(DType::uint8), false) == "|u1");
-  CHECK(zarr::v2::emit_dtype(DataType::of(DType::int64), false) == "<i8");
-  CHECK(zarr::v2::emit_dtype(DataType::of(DType::float32), false) == "<f4");
-  CHECK(zarr::v2::emit_dtype(DataType::of(DType::float32), true) == ">f4");
-  CHECK(zarr::v2::emit_dtype(DataType::raw_bytes(7), false) == "|V7");
+  CHECK(zarr::v2::emit_data_type(DataType::of(DType::boolean), false) == "|b1");
+  CHECK(zarr::v2::emit_data_type(DataType::of(DType::uint8), false) == "|u1");
+  CHECK(zarr::v2::emit_data_type(DataType::of(DType::int64), false) == "<i8");
+  CHECK(zarr::v2::emit_data_type(DataType::of(DType::float32), false) == "<f4");
+  CHECK(zarr::v2::emit_data_type(DataType::of(DType::float32), true) == ">f4");
+  CHECK(zarr::v2::emit_data_type(DataType::raw_bytes(7), false) == "|V7");
 }
 
 TEST_CASE("v2 fill_value parsing potholes") {
@@ -327,7 +327,7 @@ TEST_CASE("nlohmann exceptions never escape metadata parsing (fuzz 2026-07-05)")
   // parse_error) on number overflow; the library contract is zarr::error
   // for every malformed input.
   const std::string overflow = "1e400";
-  CHECK_THROWS_AS((void)zarr::v2::parse_json(zarr::Bytes(overflow.begin(), overflow.end()), "t"),
+  CHECK_THROWS_AS((void)zarr::detail::parse_json(zarr::Bytes(overflow.begin(), overflow.end()), "t"),
                   zarr::error);
 
   // Mis-typed members reach nlohmann type_error through .value(); the
@@ -341,7 +341,7 @@ TEST_CASE("nlohmann exceptions never escape metadata parsing (fuzz 2026-07-05)")
 }
 
 TEST_CASE("v2 float16 and complex dtypes (parity with v3)") {
-  const auto parse = [](const char* s) { return zarr::v2::parse_dtype(s, "test"); };
+  const auto parse = [](const char* s) { return zarr::v2::parse_data_type(s, "test"); };
 
   SUBCASE("parsing") {
     CHECK(parse("<f2").dtype == DataType::of(DType::float16));
@@ -353,9 +353,9 @@ TEST_CASE("v2 float16 and complex dtypes (parity with v3)") {
     CHECK_THROWS_AS((void)parse("<f1"), zarr::error);
   }
   SUBCASE("canonical emission") {
-    CHECK(zarr::v2::emit_dtype(DataType::of(DType::float16), false) == "<f2");
-    CHECK(zarr::v2::emit_dtype(DataType::of(DType::complex64), false) == "<c8");
-    CHECK(zarr::v2::emit_dtype(DataType::of(DType::complex128), true) == ">c16");
+    CHECK(zarr::v2::emit_data_type(DataType::of(DType::float16), false) == "<f2");
+    CHECK(zarr::v2::emit_data_type(DataType::of(DType::complex64), false) == "<c8");
+    CHECK(zarr::v2::emit_data_type(DataType::of(DType::complex128), true) == ">c16");
   }
   SUBCASE("float16 fills are 2 bytes, including non-finite strings") {
     const auto f2 = DataType::of(DType::float16);
@@ -401,7 +401,7 @@ TEST_CASE("genuine NCZarr output parses (libnetcdf 4.9.3 quirks)") {
     "compressor": {"id": "zlib", "level": "1"},
     "filters": [{"id": "shuffle", "elementsize": "0"}]})";
   const auto meta = zarr::v2::parse_array_meta(
-      zarr::v2::parse_json(zarr::Bytes(doc.begin(), doc.end()), "t"), "t");
+      zarr::detail::parse_json(zarr::Bytes(doc.begin(), doc.end()), "t"), "t");
   REQUIRE(meta.codecs.size() == 3);
   CHECK(meta.codecs[1].name == "shuffle");
   CHECK(meta.codecs[1].configuration.at("elementsize") == 0);

@@ -29,7 +29,7 @@ int main() try {
   zarr::zip_pack(*plain, *archived, "data.zarr.zip");
 
   // ...and open it as a read-only Store.
-  auto zipped = std::make_shared<zarr::ZipReader>(archived, "data.zarr.zip");
+  auto zipped = std::make_shared<zarr::ZipStore>(archived, "data.zarr.zip");
   auto reopened = zarr::Group::open(zipped).open_array("t");
   std::vector<std::int32_t> out(16);
   reopened.read(out.data(), out.size() * sizeof(std::int32_t));

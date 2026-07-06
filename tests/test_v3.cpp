@@ -353,7 +353,7 @@ TEST_CASE("v3 array opens and reads from a hand-written store") {
   store->write("arr/zarr.json", zarr::canonical_json_bytes(extended));
   auto patched = zarr::Array::open(store, "arr");
   patched.set_attributes({{"x", 1}});
-  const auto rewritten = zarr::v2::parse_json(*store->read("arr/zarr.json"), "arr/zarr.json");
+  const auto rewritten = zarr::detail::parse_json(*store->read("arr/zarr.json"), "arr/zarr.json");
   CHECK(rewritten.at("attributes").at("x") == 1);
   CHECK(rewritten.at("custom_extension").at("payload") == 42);  // extension survived
 }
@@ -385,7 +385,7 @@ TEST_CASE("v3 group traversal and inline consolidated metadata") {
     CHECK(values == std::vector<std::uint8_t>{7, 7, 7, 7});
     // v3 groups create v3 children.
     (void)root.create_group("x");
-    const auto xdoc = zarr::v2::parse_json(*store->read("x/zarr.json"), "x/zarr.json");
+    const auto xdoc = zarr::detail::parse_json(*store->read("x/zarr.json"), "x/zarr.json");
     CHECK(xdoc.at("node_type") == "group");
   }
 
@@ -498,7 +498,7 @@ TEST_CASE("v3 zarr.json golden bytes") {
     "zarr_format": 3
   })json";
   const json expected = json::parse(golden);
-  const auto written = zarr::v2::parse_json(*store->read("g/zarr.json"), "g/zarr.json");
+  const auto written = zarr::detail::parse_json(*store->read("g/zarr.json"), "g/zarr.json");
   CHECK(written == expected);
   // Byte-exact: canonical serialization of equal documents is identical.
   CHECK(*store->read("g/zarr.json") == zarr::canonical_json_bytes(expected));
@@ -658,7 +658,7 @@ TEST_CASE("v2 array with zarr-python 2's default blosc round-trips") {
   std::vector<std::int32_t> out(30);
   zarr::Array::open(store, "b").read(out.data(), 120);
   CHECK(out == values);
-  const auto doc = zarr::v2::parse_json(*store->read("b/.zarray"), "b/.zarray");
+  const auto doc = zarr::detail::parse_json(*store->read("b/.zarray"), "b/.zarray");
   CHECK(doc.at("compressor").at("id") == "blosc");
 }
 #endif
