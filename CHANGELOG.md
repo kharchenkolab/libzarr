@@ -6,6 +6,13 @@ All notable changes to libzarr are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **API 1.0 freeze — sharding internals hidden**: `ShardStore` and `ShardParams`
+  moved from `zarr::` into `zarr::detail_shard`. They were always auto-managed by
+  `Array` (never user-constructed) and only partially implemented `Store` (listing
+  threw); hiding them keeps the sharding implementation free to evolve without a
+  breaking change. Sharded arrays are unaffected — still driven by `ArraySpec::shards`.
+
 ### Fixed
 - **`DataType::of(DType::raw)` throws instead of asserting**: `raw` has no fixed
   size, and the kind can originate from parsed metadata, so an out-of-range call

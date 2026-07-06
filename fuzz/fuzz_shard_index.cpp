@@ -13,7 +13,8 @@ void probe(const std::uint8_t* data, std::size_t size) {
   auto store = std::make_shared<zarr::MemoryStore>();
   store->write("c/0/0", zarr::Bytes(data, data + size));
 
-  zarr::ShardParams params;
+  // ShardStore is internal (zarr::detail_shard); the fuzz harness is first-party.
+  zarr::detail_shard::ShardParams params;
   params.chunk_prefix = "";
   params.per_shard = {2, 2};
   params.inner_grid = {4, 4};
@@ -21,7 +22,7 @@ void probe(const std::uint8_t* data, std::size_t size) {
   // Exercise both index locations against the same bytes.
   for (const bool at_end : {true, false}) {
     params.index_at_end = at_end;
-    zarr::ShardStore shards(store, params);
+    zarr::detail_shard::ShardStore shards(store, params);
     for (const char* key : {"c/0/0", "c/0/1", "c/1/0", "c/1/1"}) {
       try {
         (void)shards.read(key);

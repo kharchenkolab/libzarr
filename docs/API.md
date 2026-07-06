@@ -177,28 +177,6 @@
 
 ## `sharding.hpp`
 
-### `namespace zarr`
-
-- `class ShardStore : Store`
-  - `ShardStore(std::shared_ptr<Store> source, ShardParams params)`
-  - `[[nodiscard]] std::optional<Bytes> read(std::string_view key) override`
-  - `[[nodiscard]] std::optional<Bytes> read_range(std::string_view key, ByteRange range) override`
-  - `[[nodiscard]] std::optional<std::uint64_t> size(std::string_view key) override`
-  - `[[nodiscard]] bool exists(std::string_view key) override`
-  - `void write(std::string_view key, Bytes value) override`
-  - `void erase(std::string_view key) override`
-  - `void flush() override`
-  - `[[nodiscard]] std::vector<std::string> list_prefix(std::string_view) override`
-  - `[[nodiscard]] DirListing list_dir(std::string_view) override`
-- `struct ShardParams`
-  - `std::string chunk_prefix`
-  - `ChunkKeyKind key_encoding`
-  - `char separator`
-  - `std::vector<std::uint64_t> per_shard`
-  - `std::vector<std::uint64_t> inner_grid`
-  - `std::vector<CodecSpec> index_codecs`
-  - `bool index_at_end`
-
 ## `v2.hpp`
 
 ### `namespace zarr::v2`

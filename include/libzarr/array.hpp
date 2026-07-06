@@ -426,7 +426,7 @@ class Array {
       const std::vector<std::uint64_t>& inner_shape = i + 1 < meta.shard_levels.size()
                                                           ? meta.shard_levels[i + 1].shard_shape
                                                           : meta.chunk_shape;
-      ShardParams params;
+      detail_shard::ShardParams params;
       params.chunk_prefix = prefix;
       params.key_encoding = meta.key_encoding;
       params.separator = meta.dimension_separator;
@@ -438,7 +438,7 @@ class Array {
         params.per_shard[d] = level.shard_shape[d] / inner_shape[d];
         params.inner_grid[d] = detail::ceil_div(meta.shape[d], inner_shape[d]);
       }
-      chunks = std::make_shared<ShardStore>(std::move(chunks), std::move(params));
+      chunks = std::make_shared<detail_shard::ShardStore>(std::move(chunks), std::move(params));
     }
     return chunks;
   }

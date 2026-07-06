@@ -64,8 +64,6 @@ inline std::uint64_t index_encoded_size(const std::vector<CodecSpec>& index_code
   return size;
 }
 
-}  // namespace detail_shard
-
 /// How a ShardStore maps inner-chunk keys onto shards.
 struct ShardParams {
   /// Store-key prefix of the array's chunks ("" for a root array, else
@@ -422,6 +420,8 @@ class ShardStore final : public Store {
   std::vector<std::pair<std::string, std::vector<detail_shard::IndexEntry>>> cache_;
   std::optional<Assembly> assembly_;
 };
+
+}  // namespace detail_shard
 
 }  // namespace zarr
 
