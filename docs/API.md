@@ -19,56 +19,59 @@
 - `enum class DType : std::uint8_t { boolean, int8, int16, int32, int64, uint8, uint16, uint32, uint64, float16, float32, float64, complex64, complex128, raw }`
 - `enum class ZarrFormat : std::uint8_t { v2, v3 }`
 - `using Bytes = std::vector<std::uint8_t>`
+- `class error : std::runtime_error`
+  - `using std::runtime_error::runtime_error`
 - `struct DataType`
   - `DType kind`
-  - `static DataType of(DType)`
-  - `static DataType raw_bytes(std::uint32_t)`
   - `std::uint32_t itemsize`
-- `class error : std::runtime_error`
-- `std::uint32_t fixed_itemsize(DType)`
-- `bool is_complex(DType)`
-- `bool is_float(DType)`
-- `bool is_signed_int(DType)`
-- `bool is_unsigned_int(DType)`
+  - `static constexpr DataType of(DType kind)`
+  - `static constexpr DataType raw_bytes(std::uint32_t size)`
+  - `friend constexpr bool operator==(DataType a, DataType b)`
+  - `friend constexpr bool operator!=(DataType a, DataType b)`
+- `constexpr bool is_complex(DType kind)`
+- `constexpr bool is_float(DType kind)`
+- `constexpr bool is_signed_int(DType kind)`
+- `constexpr bool is_unsigned_int(DType kind)`
+- `constexpr std::uint32_t fixed_itemsize(DType kind)`
 
 ## `store.hpp`
 
 ### `namespace zarr`
 
+- `class MemoryStore : Store`
+  - `[[nodiscard]] std::optional<Bytes> read(std::string_view key) override`
+  - `void write(std::string_view key, Bytes value) override`
+  - `[[nodiscard]] std::optional<std::uint64_t> size(std::string_view key) override`
+  - `[[nodiscard]] bool exists(std::string_view key) override`
+  - `void erase(std::string_view key) override`
+  - `[[nodiscard]] std::vector<std::string> list_prefix(std::string_view prefix) override`
+  - `[[nodiscard]] DirListing list_dir(std::string_view prefix) override`
+  - `[[nodiscard]] std::size_t size() const`
+- `class Store`
+  - `[[nodiscard]] virtual std::optional<Bytes> read(std::string_view key) = 0`
+  - `[[nodiscard]] virtual std::optional<Bytes> read_range(std::string_view key, ByteRange range)`
+  - `[[nodiscard]] virtual std::optional<std::uint64_t> size(std::string_view key)`
+  - `[[nodiscard]] virtual std::vector<std::optional<Bytes>> read_many(const std::vector<ReadRequest>& requests)`
+  - `virtual void write(std::string_view key, Bytes value) = 0`
+  - `[[nodiscard]] virtual bool exists(std::string_view key) = 0`
+  - `virtual void erase(std::string_view key) = 0`
+  - `virtual void flush()`
+  - `[[nodiscard]] virtual std::vector<std::string> list_prefix(std::string_view prefix) = 0`
+  - `[[nodiscard]] virtual DirListing list_dir(std::string_view prefix) = 0`
 - `struct ByteRange`
-  - `Kind kind`
   - `enum class Kind : std::uint8_t { full, slice, suffix }`
-  - `static ByteRange full()`
-  - `static ByteRange slice(std::uint64_t, std::uint64_t)`
-  - `static ByteRange suffix(std::uint64_t)`
-  - `std::uint64_t length`
+  - `Kind kind`
   - `std::uint64_t offset`
+  - `std::uint64_t length`
+  - `static constexpr ByteRange full()`
+  - `static constexpr ByteRange slice(std::uint64_t offset, std::uint64_t length)`
+  - `static constexpr ByteRange suffix(std::uint64_t length)`
 - `struct DirListing`
   - `std::vector<std::string> keys`
   - `std::vector<std::string> prefixes`
-- `class MemoryStore : Store`
-  - `[[nodiscard]] std::size_t size() const`
-  - `[[nodiscard]] virtual DirListing list_dir(std::string_view)`
-  - `[[nodiscard]] virtual bool exists(std::string_view)`
-  - `[[nodiscard]] virtual std::optional<Bytes> read(std::string_view)`
-  - `[[nodiscard]] virtual std::optional<std::uint64_t> size(std::string_view)`
-  - `[[nodiscard]] virtual std::vector<std::string> list_prefix(std::string_view)`
-  - `virtual void erase(std::string_view)`
-  - `virtual void write(std::string_view, Bytes)`
 - `struct ReadRequest`
-  - `ByteRange range`
   - `std::string_view key`
-- `class Store`
-  - `[[nodiscard]] virtual DirListing list_dir(std::string_view) = 0`
-  - `[[nodiscard]] virtual bool exists(std::string_view) = 0`
-  - `[[nodiscard]] virtual std::optional<Bytes> read(std::string_view) = 0`
-  - `[[nodiscard]] virtual std::optional<Bytes> read_range(std::string_view, ByteRange)`
-  - `[[nodiscard]] virtual std::optional<std::uint64_t> size(std::string_view)`
-  - `[[nodiscard]] virtual std::vector<std::optional<Bytes>> read_many(const std::vector<ReadRequest> &)`
-  - `[[nodiscard]] virtual std::vector<std::string> list_prefix(std::string_view) = 0`
-  - `virtual void erase(std::string_view) = 0`
-  - `virtual void flush()`
-  - `virtual void write(std::string_view, Bytes) = 0`
+  - `ByteRange range = ByteRange::full()`
 
 ## `metadata.hpp`
 
@@ -77,80 +80,80 @@
 - `enum class ChunkKeyKind : std::uint8_t { v2, v3_default }`
 - `using json = nlohmann::json`
 - `struct ArrayMeta`
-  - `ChunkKeyKind key_encoding`
-  - `DataType dtype`
   - `ZarrFormat format`
-  - `[[nodiscard]] std::uint64_t chunk_element_count() const`
-  - `[[nodiscard]] std::uint64_t element_count() const`
-  - `[[nodiscard]] std::vector<std::uint64_t> grid_shape() const`
-  - `char dimension_separator`
-  - `json attributes`
-  - `json dimension_names`
+  - `std::vector<std::uint64_t> shape`
+  - `std::vector<std::uint64_t> chunk_shape`
+  - `DataType dtype`
   - `std::optional<Bytes> fill`
+  - `ChunkKeyKind key_encoding`
+  - `char dimension_separator`
+  - `json dimension_names`
   - `std::vector<CodecSpec> codecs`
   - `std::vector<ShardLevel> shard_levels`
-  - `std::vector<std::uint64_t> chunk_shape`
-  - `std::vector<std::uint64_t> shape`
+  - `json attributes = json::object()`
+  - `[[nodiscard]] std::uint64_t element_count() const`
+  - `[[nodiscard]] std::uint64_t chunk_element_count() const`
+  - `[[nodiscard]] std::vector<std::uint64_t> grid_shape() const`
 - `struct CodecSpec`
-  - `json configuration`
   - `std::string name`
+  - `json configuration = json::object()`
 - `struct OpenOptions`
   - `bool lenient`
 - `struct ShardLevel`
-  - `bool index_at_end`
-  - `std::vector<CodecSpec> index_codecs`
   - `std::vector<std::uint64_t> shard_shape`
-- `CodecSpec blosc(const std::string &, int, const std::string &)`
-- `Bytes canonical_json_bytes(const json &)`
-- `CodecSpec gzip(int)`
-- `CodecSpec zlib(int)`
-- `CodecSpec zstd(int, bool)`
+  - `std::vector<CodecSpec> index_codecs`
+  - `bool index_at_end`
+- `Bytes canonical_json_bytes(const json& j)`
+- `CodecSpec blosc(const std::string& cname = "", int clevel = 5, const std::string& shuffle = "")`
+- `CodecSpec gzip(int level = 5)`
+- `CodecSpec zlib(int level = 5)`
+- `CodecSpec zstd(int level = 0, bool checksum = false)`
 
 ## `codecs.hpp`
 
 ### `namespace zarr`
 
 - `class CodecPipeline`
-  - `[[nodiscard]] Bytes decode(Bytes) const`
-  - `[[nodiscard]] Bytes decode_range(Bytes) const`
-  - `[[nodiscard]] Bytes encode(Bytes) const`
+  - `static CodecPipeline resolve(const ArrayMeta& meta)`
+  - `[[nodiscard]] std::uint64_t decoded_chunk_bytes() const`
   - `[[nodiscard]] bool is_identity() const`
   - `[[nodiscard]] bool supports_partial_read() const`
-  - `[[nodiscard]] std::uint64_t decoded_chunk_bytes() const`
-  - `static CodecPipeline resolve(const ArrayMeta &)`
+  - `[[nodiscard]] Bytes encode(Bytes chunk) const`
+  - `[[nodiscard]] Bytes decode_range(Bytes raw) const`
+  - `[[nodiscard]] Bytes decode(Bytes stored) const`
 
 ## `array.hpp`
 
 ### `namespace zarr`
 
 - `class Array`
-  - `[[nodiscard]] Bytes read_chunk(const std::vector<std::uint64_t> &) const`
-  - `[[nodiscard]] Bytes read_chunk_range(const std::vector<std::uint64_t> &, std::uint64_t, std::uint64_t) const`
-  - `[[nodiscard]] const ArrayMeta & meta() const`
-  - `[[nodiscard]] const json & attributes() const`
-  - `[[nodiscard]] const std::string & path() const`
-  - `[[nodiscard]] std::string chunk_store_key(const std::vector<std::uint64_t> &) const`
-  - `[[nodiscard]] std::uint64_t chunk_nbytes() const`
-  - `[[nodiscard]] std::uint64_t nbytes() const`
+  - `static Array create(std::shared_ptr<Store> store, const std::string& path, const ArraySpec& spec)`
+  - `static Array open(std::shared_ptr<Store> store, const std::string& path, OpenOptions options = {}, const std::shared_ptr<const json>& consolidated = nullptr)`
+  - `[[nodiscard]] const ArrayMeta& meta() const`
+  - `[[nodiscard]] const std::string& path() const`
   - `[[nodiscard]] std::vector<std::uint64_t> grid_shape() const`
-  - `static Array create(std::shared_ptr<Store>, const std::string &, const ArraySpec &)`
-  - `static Array open(std::shared_ptr<Store>, const std::string &, OpenOptions, const std::shared_ptr<const json> &)`
-  - `void read(void *, std::size_t) const`
-  - `void read_region(const std::vector<std::uint64_t> &, const std::vector<std::uint64_t> &, void *, std::size_t) const`
-  - `void set_attributes(json)`
-  - `void write(const void *, std::size_t)`
-  - `void write_chunk(const std::vector<std::uint64_t> &, const void *, std::size_t)`
-  - `void write_region(const std::vector<std::uint64_t> &, const std::vector<std::uint64_t> &, const void *, std::size_t)`
+  - `[[nodiscard]] std::uint64_t nbytes() const`
+  - `[[nodiscard]] std::uint64_t chunk_nbytes() const`
+  - `[[nodiscard]] Bytes read_chunk(const std::vector<std::uint64_t>& index) const`
+  - `void write_chunk(const std::vector<std::uint64_t>& index, const void* data, std::size_t size)`
+  - `[[nodiscard]] Bytes read_chunk_range(const std::vector<std::uint64_t>& index, std::uint64_t element_offset, std::uint64_t element_count) const`
+  - `void read(void* dst, std::size_t size) const`
+  - `void write(const void* src, std::size_t size)`
+  - `void read_region(const std::vector<std::uint64_t>& origin, const std::vector<std::uint64_t>& shape, void* dst, std::size_t size) const`
+  - `void write_region(const std::vector<std::uint64_t>& origin, const std::vector<std::uint64_t>& shape, const void* src, std::size_t size)`
+  - `[[nodiscard]] const json& attributes() const`
+  - `void set_attributes(json attributes)`
+  - `[[nodiscard]] std::string chunk_store_key(const std::vector<std::uint64_t>& index) const`
 - `struct ArraySpec`
-  - `DataType dtype`
   - `ZarrFormat format`
-  - `char dimension_separator`
-  - `json attributes`
-  - `json dimension_names`
-  - `std::optional<Bytes> fill`
-  - `std::vector<CodecSpec> codecs`
-  - `std::vector<std::uint64_t> chunks`
   - `std::vector<std::uint64_t> shape`
+  - `std::vector<std::uint64_t> chunks`
+  - `DataType dtype`
+  - `std::vector<CodecSpec> codecs`
+  - `std::optional<Bytes> fill`
+  - `json attributes = json::object()`
+  - `char dimension_separator`
+  - `json dimension_names`
   - `std::vector<std::uint64_t> shards`
 
 ## `group.hpp`
@@ -158,16 +161,16 @@
 ### `namespace zarr`
 
 - `class Group`
-  - `Array create_array(const std::string &, ArraySpec)`
-  - `Group create_group(const std::string &)`
-  - `[[nodiscard]] Array open_array(const std::string &) const`
-  - `[[nodiscard]] Group open_group(const std::string &) const`
+  - `static Group create(std::shared_ptr<Store> store, const std::string& path = "", ZarrFormat format = ZarrFormat::v2)`
+  - `static Group open(std::shared_ptr<Store> store, const std::string& path = "", OpenOptions options = {})`
+  - `[[nodiscard]] const std::string& path() const`
+  - `[[nodiscard]] const json& attributes() const`
+  - `void set_attributes(json attributes)`
+  - `Group create_group(const std::string& name)`
+  - `Array create_array(const std::string& name, ArraySpec spec)`
+  - `[[nodiscard]] Group open_group(const std::string& name) const`
+  - `[[nodiscard]] Array open_array(const std::string& name) const`
   - `[[nodiscard]] GroupChildren children() const`
-  - `[[nodiscard]] const json & attributes() const`
-  - `[[nodiscard]] const std::string & path() const`
-  - `static Group create(std::shared_ptr<Store>, const std::string &, ZarrFormat)`
-  - `static Group open(std::shared_ptr<Store>, const std::string &, OpenOptions)`
-  - `void set_attributes(json)`
 - `struct GroupChildren`
   - `std::vector<std::string> arrays`
   - `std::vector<std::string> groups`
@@ -176,100 +179,100 @@
 
 ### `namespace zarr`
 
-- `struct ShardParams`
-  - `ChunkKeyKind key_encoding`
-  - `bool index_at_end`
-  - `char separator`
-  - `std::string chunk_prefix`
-  - `std::vector<CodecSpec> index_codecs`
-  - `std::vector<std::uint64_t> inner_grid`
-  - `std::vector<std::uint64_t> per_shard`
 - `class ShardStore : Store`
-  - `ShardStore(std::shared_ptr<Store>, ShardParams)`
-  - `[[nodiscard]] virtual DirListing list_dir(std::string_view)`
-  - `[[nodiscard]] virtual bool exists(std::string_view)`
-  - `[[nodiscard]] virtual std::optional<Bytes> read(std::string_view)`
-  - `[[nodiscard]] virtual std::optional<Bytes> read_range(std::string_view, ByteRange)`
-  - `[[nodiscard]] virtual std::optional<std::uint64_t> size(std::string_view)`
-  - `[[nodiscard]] virtual std::vector<std::string> list_prefix(std::string_view)`
-  - `virtual void erase(std::string_view)`
-  - `virtual void flush()`
-  - `virtual void write(std::string_view, Bytes)`
+  - `ShardStore(std::shared_ptr<Store> source, ShardParams params)`
+  - `[[nodiscard]] std::optional<Bytes> read(std::string_view key) override`
+  - `[[nodiscard]] std::optional<Bytes> read_range(std::string_view key, ByteRange range) override`
+  - `[[nodiscard]] std::optional<std::uint64_t> size(std::string_view key) override`
+  - `[[nodiscard]] bool exists(std::string_view key) override`
+  - `void write(std::string_view key, Bytes value) override`
+  - `void erase(std::string_view key) override`
+  - `void flush() override`
+  - `[[nodiscard]] std::vector<std::string> list_prefix(std::string_view) override`
+  - `[[nodiscard]] DirListing list_dir(std::string_view) override`
+- `struct ShardParams`
+  - `std::string chunk_prefix`
+  - `ChunkKeyKind key_encoding`
+  - `char separator`
+  - `std::vector<std::uint64_t> per_shard`
+  - `std::vector<std::uint64_t> inner_grid`
+  - `std::vector<CodecSpec> index_codecs`
+  - `bool index_at_end`
 
 ## `v2.hpp`
 
 ### `namespace zarr::v2`
 
-- `const char *const kArraySuffix`
-- `const char *const kAttrsSuffix`
-- `const char *const kConsolidatedKey`
-- `const char *const kGroupSuffix`
+- `constexpr const char* kArraySuffix`
+- `constexpr const char* kAttrsSuffix`
+- `constexpr const char* kConsolidatedKey`
+- `constexpr const char* kGroupSuffix`
 - `struct ParsedDType`
   - `DataType dtype`
   - `bool big_endian`
-- `void check_group_meta(const json &, const std::string &)`
-- `std::string chunk_key(const std::vector<std::uint64_t> &, char)`
-- `void consolidate(Store &)`
-- `json emit_array_meta(const ArrayMeta &)`
-- `std::string emit_dtype(DataType, bool)`
-- `void erase_meta_key(Store &, const std::string &)`
+- `ArrayMeta parse_array_meta(const json& j, const std::string& ctx)`
+- `ParsedDType parse_dtype(const std::string& text, const std::string& ctx)`
+- `json emit_array_meta(const ArrayMeta& meta)`
 - `json group_meta_json()`
-- `std::string meta_key(const std::string &, const char *)`
-- `ArrayMeta parse_array_meta(const json &, const std::string &)`
-- `ParsedDType parse_dtype(const std::string &, const std::string &)`
-- `std::optional<Bytes> parse_fill(const json &, DataType, const std::string &)`
-- `json parse_json(const Bytes &, const std::string &)`
-- `std::optional<json> read_consolidated(Store &)`
-- `void write_meta_key(Store &, const std::string &, const json &)`
+- `json parse_json(const Bytes& bytes, const std::string& ctx)`
+- `std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::string& ctx)`
+- `std::optional<json> read_consolidated(Store& store)`
+- `std::string chunk_key(const std::vector<std::uint64_t>& index, char separator)`
+- `std::string emit_dtype(DataType dt, bool big_endian)`
+- `std::string meta_key(const std::string& path, const char* suffix)`
+- `void check_group_meta(const json& j, const std::string& ctx)`
+- `void consolidate(Store& store)`
+- `void erase_meta_key(Store& store, const std::string& key)`
+- `void write_meta_key(Store& store, const std::string& key, const json& value)`
 
 ## `v3.hpp`
 
 ### `namespace zarr::v3`
 
-- `const char *const kMetaKey`
+- `constexpr const char* kMetaKey`
 - `struct GroupMeta`
-  - `json attributes`
+  - `json attributes = json::object()`
   - `std::optional<json> consolidated`
-- `std::string chunk_key(const std::vector<std::uint64_t> &, char)`
-- `void consolidate(Store &)`
-- `json emit_array_meta(const ArrayMeta &)`
-- `std::string emit_data_type(DataType)`
-- `json emit_fill(const std::optional<Bytes> &, DataType)`
-- `json emit_group_meta(const json &)`
-- `std::string meta_key(const std::string &)`
-- `ArrayMeta parse_array_meta(const json &, const std::string &, bool)`
-- `DataType parse_data_type(const json &, const std::string &)`
-- `std::optional<Bytes> parse_fill(const json &, DataType, const std::string &, bool)`
-- `GroupMeta parse_group_meta(const json &, const std::string &, bool)`
+- `ArrayMeta parse_array_meta(const json& j, const std::string& ctx, bool lenient = false)`
+- `DataType parse_data_type(const json& v, const std::string& ctx)`
+- `GroupMeta parse_group_meta(const json& j, const std::string& ctx, bool lenient = false)`
+- `json emit_array_meta(const ArrayMeta& meta)`
+- `json emit_fill(const std::optional<Bytes>& fill, DataType dt)`
+- `json emit_group_meta(const json& attributes)`
+- `std::optional<Bytes> parse_fill(const json& v, DataType dt, const std::string& ctx, bool lenient)`
+- `std::string chunk_key(const std::vector<std::uint64_t>& index, char separator)`
+- `std::string emit_data_type(DataType dt)`
+- `std::string meta_key(const std::string& path)`
+- `void consolidate(Store& store)`
 
 ## `zip.hpp`
 
 ### `namespace zarr`
 
 - `class ZipReader : Store`
-  - `ZipReader(std::shared_ptr<Store>, std::string)`
+  - `ZipReader(std::shared_ptr<Store> source, std::string archive_key)`
+  - `[[nodiscard]] std::optional<Bytes> read(std::string_view key) override`
+  - `[[nodiscard]] std::optional<Bytes> read_range(std::string_view key, ByteRange range) override`
+  - `[[nodiscard]] std::optional<std::uint64_t> size(std::string_view key) override`
+  - `[[nodiscard]] bool exists(std::string_view key) override`
+  - `void write(std::string_view, Bytes) override`
+  - `void erase(std::string_view) override`
+  - `[[nodiscard]] std::vector<std::string> list_prefix(std::string_view prefix) override`
+  - `[[nodiscard]] DirListing list_dir(std::string_view prefix) override`
   - `[[nodiscard]] std::size_t entry_count() const`
-  - `[[nodiscard]] virtual DirListing list_dir(std::string_view)`
-  - `[[nodiscard]] virtual bool exists(std::string_view)`
-  - `[[nodiscard]] virtual std::optional<Bytes> read(std::string_view)`
-  - `[[nodiscard]] virtual std::optional<Bytes> read_range(std::string_view, ByteRange)`
-  - `[[nodiscard]] virtual std::optional<std::uint64_t> size(std::string_view)`
-  - `[[nodiscard]] virtual std::vector<std::string> list_prefix(std::string_view)`
-  - `virtual void erase(std::string_view)`
-  - `virtual void write(std::string_view, Bytes)`
-- `void zip_pack(Store &, Store &, const std::string &, const std::string &, bool)`
+- `void zip_pack(Store& source, Store& dest, const std::string& dest_key, const std::string& prefix = "", bool force_zip64 = false)`
 
 ## `adapters/filesystem_store.hpp`
 
 ### `namespace zarr`
 
 - `class FilesystemStore : Store`
-  - `FilesystemStore(std::filesystem::path, bool)`
-  - `[[nodiscard]] virtual DirListing list_dir(std::string_view)`
-  - `[[nodiscard]] virtual bool exists(std::string_view)`
-  - `[[nodiscard]] virtual std::optional<Bytes> read(std::string_view)`
-  - `[[nodiscard]] virtual std::optional<Bytes> read_range(std::string_view, ByteRange)`
-  - `[[nodiscard]] virtual std::optional<std::uint64_t> size(std::string_view)`
-  - `[[nodiscard]] virtual std::vector<std::string> list_prefix(std::string_view)`
-  - `virtual void erase(std::string_view)`
-  - `virtual void write(std::string_view, Bytes)`
+  - `explicit FilesystemStore(std::filesystem::path root, bool create = true)`
+  - `[[nodiscard]] std::optional<Bytes> read(std::string_view key) override`
+  - `[[nodiscard]] std::optional<Bytes> read_range(std::string_view key, ByteRange range) override`
+  - `void write(std::string_view key, Bytes value) override`
+  - `[[nodiscard]] std::optional<std::uint64_t> size(std::string_view key) override`
+  - `[[nodiscard]] bool exists(std::string_view key) override`
+  - `void erase(std::string_view key) override`
+  - `[[nodiscard]] std::vector<std::string> list_prefix(std::string_view prefix) override`
+  - `[[nodiscard]] DirListing list_dir(std::string_view prefix) override`

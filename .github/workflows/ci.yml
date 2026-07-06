@@ -121,9 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y clang # clang builtin headers
-      - run: pip install libclang==18.1.1
-      - run: python3 tools/api_inventory.py
+      - run: python3 tools/api_inventory.py # self-contained; no external deps
       - run: git diff --exit-code docs/API.md
 
   # The amalgamated single header must stay generatable and compilable.
