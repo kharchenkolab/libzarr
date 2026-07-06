@@ -46,7 +46,7 @@ lets you supply your own copy of nlohmann/json, but not a different JSON library
 A public symbol slated for removal is first marked `[[deprecated]]` (with a
 message pointing at the replacement) for at least one minor release before it is
 removed in the following major release. Deprecations are listed in
-[CHANGELOG.md](../CHANGELOG.md).
+[CHANGELOG.md](https://github.com/kharchenkolab/libzarr/blob/main/CHANGELOG.md).
 
 ## Enforcement
 

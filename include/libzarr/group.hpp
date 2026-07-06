@@ -37,9 +37,9 @@ class Group {
   /// Creates a group at `path` ("" = store root) in the requested format,
   /// including any missing ancestor groups (writers that skip intermediate
   /// group documents are a known interop hazard). Existing group documents
-  /// along the chain are left untouched.
-  // Not [[nodiscard]]: creating writes the group metadata as a side effect, so
-  // discarding the returned handle (create-and-forget) is a legitimate use.
+  /// along the chain are left untouched. Not `[[nodiscard]]`: creating writes
+  /// the group metadata as a side effect, so discarding the returned handle
+  /// (create-and-forget) is a legitimate use.
   static Group create(std::shared_ptr<Store> store, const std::string& path = "",
                       ZarrFormat format = ZarrFormat::v2) {
     if (!store) {

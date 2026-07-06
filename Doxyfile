@@ -2,7 +2,7 @@
 # symbols are errors (docs are machine-checked or they don't exist).
 PROJECT_NAME           = libzarr
 PROJECT_BRIEF          = "Header-only C++17 Zarr v2/v3, WASM-compatible"
-INPUT                  = include/libzarr README.md SKILL.md docs/SPEC.md docs/DESIGN.md
+INPUT                  = include/libzarr README.md SKILL.md docs/SPEC.md docs/DESIGN.md docs/API.md docs/COMPATIBILITY.md
 USE_MDFILE_AS_MAINPAGE = README.md
 RECURSIVE              = YES
 EXCLUDE_PATTERNS       = */detail/*
