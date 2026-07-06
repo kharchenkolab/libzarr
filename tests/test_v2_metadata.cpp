@@ -327,8 +327,9 @@ TEST_CASE("nlohmann exceptions never escape metadata parsing (fuzz 2026-07-05)")
   // parse_error) on number overflow; the library contract is zarr::error
   // for every malformed input.
   const std::string overflow = "1e400";
-  CHECK_THROWS_AS((void)zarr::detail::parse_json(zarr::Bytes(overflow.begin(), overflow.end()), "t"),
-                  zarr::error);
+  CHECK_THROWS_AS(
+      (void)zarr::detail::parse_json(zarr::Bytes(overflow.begin(), overflow.end()), "t"),
+      zarr::error);
 
   // Mis-typed members reach nlohmann type_error through .value(); the
   // entry-point guard must convert those too.
