@@ -17,7 +17,7 @@
 /// Library major version.
 #define LIBZARR_VERSION_MAJOR 0
 /// Library minor version.
-#define LIBZARR_VERSION_MINOR 1
+#define LIBZARR_VERSION_MINOR 3
 /// Library patch version.
 #define LIBZARR_VERSION_PATCH 0
 // NOLINTEND(modernize-macro-to-enum,cppcoreguidelines-macro-to-enum)

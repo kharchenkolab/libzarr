@@ -6,6 +6,13 @@ All notable changes to libzarr are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-05
+
+Real-world interop hardening and operational maturity: genuine foreign-writer stores
+(GDAL, NCZarr, TensorStore) read bit-for-bit, hardware-accelerated CRC-32C, batched
+multi-range reads, continuous fuzzing, and published API docs. No test data is committed —
+fixtures generate synthetically.
+
 ### Added
 - **Survey tooling** (`tools/survey.py` + `conformance_tool probe`; `tools/fetch_dataset.py`
   for full arrays): probes public zarr stores. First run (tests/wild/SURVEY.md) parsed 339
@@ -20,32 +27,10 @@ All notable changes to libzarr are documented here. The format follows
   reproduce stores from GDAL 3.13.1, libnetcdf 4.9.3 (NCZarr), TensorStore and omero-zarr,
   cross-checked against writer-computed manifests. Validating the GDAL/NCZarr tolerances
   against genuine output this way surfaced the shuffle filter and string-numeral quirks
-  below (now pinned by synthetic unit tests).
+  (now pinned by synthetic unit tests).
 - **v2 float16 and complex dtypes** (`<f2`, `<c8`, `<c16`), read and write — dtype parity
   with v3. Complex fills use zarr-python's `[re, im]` pair form; float16 non-finite string
   fills now encode to the correct 2-byte values.
-
-### Changed
-- **No test data is committed.** Removed the checked-in wild fixtures and fuzz corpus;
-  fixtures generate synthetically at build/CI time (`fuzz/gen_seeds.py`, the zarr-python
-  conformance harness) and foreign-writer/public-store interop is validated locally via
-  `tests/wild/` and `tools/`. Format quirks stay pinned by synthetic unit tests.
-
-## [Unreleased]
-
-### Changed
-- **WASM builds can now enable codecs**: `LIBZARR_WITH_ZLIB` wires Emscripten's zlib port
-  (`-sUSE_ZLIB`), so the WASM + gzip configuration real browser consumers use is buildable —
-  and a new `emscripten-zlib` CI job guards it (the zero-dep `emscripten` job still guards
-  the minimal core). Documented the deliberately-synchronous Store contract and its
-  async-fetch bridges (Asyncify / worker + SharedArrayBuffer) in docs/DESIGN.md.
-- **Hardware-accelerated CRC-32C**: `detail::crc32c` now dispatches at run time to the SSE4.2
-  CRC instruction on x86 (GCC/Clang), ~4.5–5.6× the portable table it replaces (crc32c codec
-  throughput 325→1435 MiB/s write, 357→2018 read). Falls back to the table on non-x86, MSVC,
-  and WASM, so the core stays portable and WASM-clean; verified bit-identical to the table
-  across all length/alignment cases. Speeds up the v3 crc32c codec and shard-index checks.
-
-### Added
 - **v3 inline consolidated metadata pinned both directions** against zarr-python in the
   conformance suite: libzarr reads every array through a zarr-python-written inline map
   (`read-consolidated` mode), and zarr-python's `open_consolidated` reads back what libzarr
@@ -60,6 +45,22 @@ All notable changes to libzarr are documented here. The format follows
   are ready for an OSS-Fuzz submission.
 - **Published API documentation** at <https://kharchenkolab.github.io/libzarr/> (Doxygen,
   auto-deployed to GitHub Pages on every push to main).
+
+### Changed
+- **No test data is committed.** Removed the checked-in wild fixtures and fuzz corpus;
+  fixtures generate synthetically at build/CI time (`fuzz/gen_seeds.py`, the zarr-python
+  conformance harness) and foreign-writer/public-store interop is validated locally via
+  `tests/wild/` and `tools/`. Format quirks stay pinned by synthetic unit tests.
+- **WASM builds can now enable codecs**: `LIBZARR_WITH_ZLIB` wires Emscripten's zlib port
+  (`-sUSE_ZLIB`), so the WASM + gzip configuration real browser consumers use is buildable —
+  and a new `emscripten-zlib` CI job guards it (the zero-dep `emscripten` job still guards
+  the minimal core). Documented the deliberately-synchronous Store contract and its
+  async-fetch bridges (Asyncify / worker + SharedArrayBuffer) in docs/DESIGN.md.
+- **Hardware-accelerated CRC-32C**: `detail::crc32c` now dispatches at run time to the SSE4.2
+  CRC instruction on x86 (GCC/Clang), ~4.5–5.6× the portable table it replaces (crc32c codec
+  throughput 325→1435 MiB/s write, 357→2018 read). Falls back to the table on non-x86, MSVC,
+  and WASM, so the core stays portable and WASM-clean; verified bit-identical to the table
+  across all length/alignment cases. Speeds up the v3 crc32c codec and shard-index checks.
 
 ## [0.2.0] - 2026-07-05
 
@@ -107,7 +108,7 @@ both directions; WASM-clean core.
 - **Sharding (`sharding_indexed`)**, read and write, including nested shards, both
   `index_location`s on read, crc32c-verified indices, byte-range reads into shards, and
   read-modify-write shard updates. Modeled as a `ShardStore` adapter (see docs/DESIGN.md,
-  which records the go/no-go review and memory bounds). `ArraySpec::shards` on create;
+  which records the design and its memory bounds). `ArraySpec::shards` on create;
   conformance-tested against zarr-python in both directions. Fuzz harness #3 covers shard
   bytes.
 - **Zarr v3 write** (non-sharded): canonical, deterministic `zarr.json` emission
