@@ -181,12 +181,13 @@ inline Bytes assemble_shard(const std::vector<std::optional<Bytes>>& entries,
   std::vector<std::uint64_t> raw_index(entries.size() * 2, kSentinel);
   const std::uint64_t base = index_at_end ? 0 : index_size;  // chunks follow a leading index
   for (std::size_t i = 0; i < entries.size(); ++i) {
-    if (!entries[i]) {
+    const std::optional<Bytes>& entry = entries[i];
+    if (!entry) {
       continue;
     }
     raw_index[i * 2] = base + body.size();
-    raw_index[i * 2 + 1] = entries[i]->size();
-    body.insert(body.end(), entries[i]->begin(), entries[i]->end());
+    raw_index[i * 2 + 1] = entry->size();
+    body.insert(body.end(), entry->begin(), entry->end());
   }
   Bytes index_bytes(raw_index.size() * 8);
   std::memcpy(index_bytes.data(), raw_index.data(), index_bytes.size());
@@ -455,7 +456,7 @@ class ShardStore final : public Store {
     if (!assembly_) {
       return;
     }
-    Assembly assembly = *std::move(assembly_);
+    const Assembly assembly = *std::move(assembly_);
     assembly_.reset();
     if (!assembly.dirty) {
       return;
