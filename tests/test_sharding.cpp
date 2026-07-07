@@ -71,6 +71,88 @@ void check_facade_matches_reader(const std::shared_ptr<zarr::MemoryStore>& store
   }
 }
 
+// Single-level sharded metadata with the index at the front (the writer only
+// emits "end"); parsed so tests can exercise the index_location: start path.
+json index_start_doc() {
+  return {
+      {"zarr_format", 3},
+      {"node_type", "array"},
+      {"shape", {8, 8}},
+      {"data_type", "int32"},
+      {"chunk_grid", {{"name", "regular"}, {"configuration", {{"chunk_shape", {4, 4}}}}}},
+      {"chunk_key_encoding", {{"name", "default"}, {"configuration", {{"separator", "/"}}}}},
+      {"fill_value", 0},
+      {"codecs",
+       {{{"name", "sharding_indexed"},
+         {"configuration",
+          {{"chunk_shape", {2, 2}},
+           {"codecs", {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}}},
+           {"index_codecs",
+            {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}, {{"name", "crc32c"}}}},
+           {"index_location", "start"}}}}}}};
+}
+
+// Two-level nested sharding: outer shards 8x8, mid shards 4x4, inner chunks 2x2.
+json nested_doc() {
+  const json inner = {
+      {"name", "sharding_indexed"},
+      {"configuration",
+       {{"chunk_shape", {2, 2}},
+        {"codecs", {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}}},
+        {"index_codecs",
+         {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}, {{"name", "crc32c"}}}},
+        {"index_location", "end"}}}};
+  return {
+      {"zarr_format", 3},
+      {"node_type", "array"},
+      {"shape", {8, 8}},
+      {"data_type", "int32"},
+      {"chunk_grid", {{"name", "regular"}, {"configuration", {{"chunk_shape", {8, 8}}}}}},
+      {"chunk_key_encoding", {{"name", "default"}, {"configuration", {{"separator", "/"}}}}},
+      {"fill_value", 0},
+      {"codecs",
+       {{{"name", "sharding_indexed"},
+         {"configuration",
+          {{"chunk_shape", {4, 4}},
+           {"codecs", {inner}},
+           {"index_codecs",
+            {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}, {{"name", "crc32c"}}}},
+           {"index_location", "end"}}}}}}};
+}
+
+// pack() then extent() must round-trip every slot: extent recovers each
+// non-null slot's [offset, nbytes), and reading those bytes yields the chunk.
+void check_pack_extent_roundtrip(const zarr::ArrayMeta& meta, std::size_t level,
+                                 const std::vector<std::optional<zarr::Bytes>>& entries) {
+  const zarr::Bytes shard = zarr::shard::pack(meta, entries, level);
+  bool any = false;
+  for (const auto& e : entries) {
+    any = any || e.has_value();
+  }
+  if (!any) {
+    CHECK(shard.empty());
+    return;
+  }
+  const auto params = zarr::detail_shard::params_for_level(meta, level, "");
+  const auto index_size =
+      zarr::detail_shard::index_encoded_size(params.index_codecs, entries.size(), "test");
+  const auto isz = static_cast<std::ptrdiff_t>(index_size);
+  const zarr::Bytes index = params.index_at_end ? zarr::Bytes(shard.end() - isz, shard.end())
+                                                : zarr::Bytes(shard.begin(), shard.begin() + isz);
+  for (std::size_t slot = 0; slot < entries.size(); ++slot) {
+    CAPTURE(slot);
+    const auto e = zarr::shard::extent(meta, index, slot, level);
+    if (!entries[slot]) {
+      CHECK(e.missing);
+      continue;
+    }
+    REQUIRE_FALSE(e.missing);
+    const auto off = static_cast<std::ptrdiff_t>(e.offset);
+    const auto n = static_cast<std::ptrdiff_t>(e.nbytes);
+    CHECK(zarr::Bytes(shard.begin() + off, shard.begin() + off + n) == *entries[slot]);
+  }
+}
+
 }  // namespace
 
 TEST_CASE("sharded array round-trip") {
@@ -173,24 +255,7 @@ TEST_CASE("shard façade resolves the same bytes as the internal reader") {
   }
 
   SUBCASE("index_location: start") {
-    const json doc = {
-        {"zarr_format", 3},
-        {"node_type", "array"},
-        {"shape", {8, 8}},
-        {"data_type", "int32"},
-        {"chunk_grid", {{"name", "regular"}, {"configuration", {{"chunk_shape", {4, 4}}}}}},
-        {"chunk_key_encoding", {{"name", "default"}, {"configuration", {{"separator", "/"}}}}},
-        {"fill_value", 0},
-        {"codecs",
-         {{{"name", "sharding_indexed"},
-           {"configuration",
-            {{"chunk_shape", {2, 2}},
-             {"codecs", {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}}},
-             {"index_codecs",
-              {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}},
-               {{"name", "crc32c"}}}},
-             {"index_location", "start"}}}}}}};
-    store->write("z/zarr.json", zarr::canonical_json_bytes(doc));
+    store->write("z/zarr.json", zarr::canonical_json_bytes(index_start_doc()));
     zarr::Array::open(store, "z").write(iota32(64).data(), 256);
     const auto meta = zarr::Array::open(store, "z").meta();
     CHECK_FALSE(zarr::shard::place(meta, "z", {0, 0}).index_at_end);  // index at start
@@ -200,31 +265,7 @@ TEST_CASE("shard façade resolves the same bytes as the internal reader") {
 
 TEST_CASE("shard::place selects per-level geometry (nested)") {
   auto store = std::make_shared<zarr::MemoryStore>();
-  const json inner = {
-      {"name", "sharding_indexed"},
-      {"configuration",
-       {{"chunk_shape", {2, 2}},
-        {"codecs", {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}}},
-        {"index_codecs",
-         {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}, {{"name", "crc32c"}}}},
-        {"index_location", "end"}}}};
-  const json doc = {
-      {"zarr_format", 3},
-      {"node_type", "array"},
-      {"shape", {8, 8}},
-      {"data_type", "int32"},
-      {"chunk_grid", {{"name", "regular"}, {"configuration", {{"chunk_shape", {8, 8}}}}}},
-      {"chunk_key_encoding", {{"name", "default"}, {"configuration", {{"separator", "/"}}}}},
-      {"fill_value", 0},
-      {"codecs",
-       {{{"name", "sharding_indexed"},
-         {"configuration",
-          {{"chunk_shape", {4, 4}},
-           {"codecs", {inner}},
-           {"index_codecs",
-            {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}, {{"name", "crc32c"}}}},
-           {"index_location", "end"}}}}}}};
-  store->write("n/zarr.json", zarr::canonical_json_bytes(doc));
+  store->write("n/zarr.json", zarr::canonical_json_bytes(nested_doc()));
   const auto meta = zarr::Array::open(store, "n").meta();
   REQUIRE(meta.shard_levels.size() == 2);
 
@@ -237,6 +278,83 @@ TEST_CASE("shard::place selects per-level geometry (nested)") {
   CHECK(p1.shard_key == "n/c/1/1");
   CHECK(p1.slot == 3);
   CHECK_THROWS_AS((void)zarr::shard::place(meta, "n", {0, 0}, 2), zarr::error);  // no such level
+}
+
+TEST_CASE("shard::pack assembles shards that extent round-trips") {
+  auto store = std::make_shared<zarr::MemoryStore>();
+
+  // `n` slots; the `present` ones carry distinct byte blobs, the rest are fill.
+  const auto entries_of = [](std::size_t n, const std::vector<std::size_t>& present) {
+    std::vector<std::optional<zarr::Bytes>> e(n);
+    for (const std::size_t i : present) {
+      e[i] = zarr::Bytes(4 + i, static_cast<unsigned char>(0x10 + i));
+    }
+    return e;
+  };
+
+  SUBCASE("index end, single level") {
+    zarr::Array::create(store, "s", sharded_spec());
+    const auto meta = zarr::Array::open(store, "s").meta();
+    check_pack_extent_roundtrip(meta, 0, entries_of(4, {0, 1, 3}));  // slot 2 is fill
+  }
+  SUBCASE("index start") {
+    store->write("z/zarr.json", zarr::canonical_json_bytes(index_start_doc()));
+    const auto meta = zarr::Array::open(store, "z").meta();
+    check_pack_extent_roundtrip(meta, 0, entries_of(4, {1, 2}));
+  }
+  SUBCASE("nested, level 1") {
+    store->write("n/zarr.json", zarr::canonical_json_bytes(nested_doc()));
+    const auto meta = zarr::Array::open(store, "n").meta();
+    check_pack_extent_roundtrip(meta, 1, entries_of(4, {0, 3}));
+  }
+  SUBCASE("all-fill returns empty") {
+    zarr::Array::create(store, "s", sharded_spec());
+    const auto meta = zarr::Array::open(store, "s").meta();
+    CHECK(zarr::shard::pack(meta, entries_of(4, {}), 0).empty());
+  }
+  SUBCASE("wrong entry count or bad level throws") {
+    zarr::Array::create(store, "s", sharded_spec());
+    const auto meta = zarr::Array::open(store, "s").meta();
+    CHECK_THROWS_AS((void)zarr::shard::pack(meta, entries_of(3, {0}), 0), zarr::error);  // 3 != 4
+    CHECK_THROWS_AS((void)zarr::shard::pack(meta, entries_of(4, {0}), 1),
+                    zarr::error);  // no level 1
+  }
+}
+
+TEST_CASE("a packed shard reads back through Array") {
+  // Encode inner chunks with the public pipeline, pack them into a shard object,
+  // write it, and confirm the full Array read path (and a fill slot) round-trips.
+  auto store = std::make_shared<zarr::MemoryStore>();
+  zarr::Array::create(store, "s", sharded_spec());  // metadata only, no chunks yet
+  const auto meta = zarr::Array::open(store, "s").meta();
+  auto pipe = zarr::CodecPipeline::resolve(meta);  // inner-chunk codec chain
+
+  std::vector<std::vector<std::int32_t>> raws(4, std::vector<std::int32_t>(4));
+  std::vector<std::optional<zarr::Bytes>> entries(4);
+  for (std::size_t s = 0; s < 4; ++s) {
+    for (std::size_t k = 0; k < 4; ++k) {
+      raws[s][k] = static_cast<std::int32_t>(s * 100 + k);
+    }
+    zarr::Bytes raw(16);
+    std::memcpy(raw.data(), raws[s].data(), 16);
+    entries[s] = pipe.encode(raw);
+  }
+  entries[2] = std::nullopt;  // inner chunk (1,0) left as fill
+
+  const auto p = zarr::shard::place(meta, "s", {0, 0});  // all 4 inner chunks share this shard
+  store->write(p.shard_key, zarr::shard::pack(meta, entries, 0));
+
+  auto arr = zarr::Array::open(store, "s");
+  const auto read_chunk = [&](const std::vector<std::uint64_t>& ci) {
+    const zarr::Bytes c = arr.read_chunk(ci);
+    std::vector<std::int32_t> out(4);
+    std::memcpy(out.data(), c.data(), 16);
+    return out;
+  };
+  CHECK(read_chunk({0, 0}) == raws[0]);                          // slot 0
+  CHECK(read_chunk({0, 1}) == raws[1]);                          // slot 1
+  CHECK(read_chunk({1, 1}) == raws[3]);                          // slot 3
+  CHECK(read_chunk({1, 0}) == std::vector<std::int32_t>(4, 0));  // slot 2: fill
 }
 
 TEST_CASE("read-modify-write preserves sibling inner chunks") {

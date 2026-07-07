@@ -196,6 +196,7 @@
   - `std::uint64_t slot`
   - `std::uint64_t index_size`
   - `bool index_at_end`
+- `[[nodiscard]] Bytes pack(const ArrayMeta& meta, const std::vector<std::optional<Bytes>>& entries, std::size_t level = 0)`
 - `[[nodiscard]] Extent extent(const ArrayMeta& meta, const Bytes& index_bytes, std::uint64_t slot, std::size_t level = 0)`
 - `[[nodiscard]] Placement place(const ArrayMeta& meta, const std::string& path, const std::vector<std::uint64_t>& inner_index, std::size_t level = 0)`
 

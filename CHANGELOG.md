@@ -59,6 +59,14 @@ All notable changes to libzarr are documented here. The format follows
   bridge required. `ShardStore` stays internal; nested levels and both index
   locations are supported; missing (fill) slots are reported, not thrown. Together
   with the public `CodecPipeline` this is a complete pure-sync sharded read path.
+- **`zarr::shard::pack`** — the write twin of the resolver: assembles a shard
+  object's bytes from its slot-ordered, already-encoded inner chunks (concatenate
+  + build the checksummed `[offset, nbytes]` index at the level's `index_location`),
+  purely, with no Store. `nullopt` slots become sentinels; an all-fill shard packs
+  to empty bytes (not written). The inverse of `extent()` — a `pack`→`extent`
+  round-trip is asserted — so a WASM writer can produce sharded stores by byte
+  range while libzarr owns the index layout. Factored from `ShardStore`'s internal
+  writer, so both share one implementation.
 - **Machine-checked public API surface**: `tools/api_inventory.py` regenerates
   `docs/API.md` (every symbol in `namespace zarr` outside `detail*`) as a pure
   function of the headers; a CI `api` job fails if the committed copy drifts, so
