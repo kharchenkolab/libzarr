@@ -9,9 +9,11 @@
 A small, dependency-light, **header-only C++17** library for reading and writing the
 [Zarr](https://zarr.dev) array storage format — **v2 and v3**.
 
-> **Status: v0.1 (pre-1.0).** Zarr **v2 and v3 read/write including sharding** work and
-> are conformance-tested against zarr-python in both directions, as are STORED-entry
-> **ZIP archives**. The API may still change before 1.0.
+> **Status: 1.0 (stable).** Zarr **v2 and v3 read/write including sharding** are
+> conformance-tested against zarr-python in both directions, as are STORED-entry
+> **ZIP archives**. The public API is frozen and machine-checked
+> ([docs/API.md](docs/API.md)); the stability promise is
+> [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
 ## Usage highlights
 

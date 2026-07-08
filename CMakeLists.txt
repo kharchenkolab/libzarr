@@ -2,7 +2,7 @@
 # examples, checks) and for convenient consumption via add_subdirectory /
 # FetchContent. Consuming the headers directly needs no build system at all.
 cmake_minimum_required(VERSION 3.16)
-project(libzarr VERSION 0.3.0 LANGUAGES CXX)
+project(libzarr VERSION 1.0.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 

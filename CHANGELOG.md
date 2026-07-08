@@ -1,10 +1,22 @@
 # Changelog
 
 All notable changes to libzarr are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions will follow
-[SemVer](https://semver.org) once 1.0 is reached.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[SemVer](https://semver.org) — the source-compatibility promise is
+[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-07-08
+
+First stable release. The public API — every symbol in `namespace zarr` outside
+`detail*` — is frozen, machine-enumerated in docs/API.md, and guarded by CI;
+additions are minor releases, removals a major (docs/COMPATIBILITY.md). Ships
+the freeze itself (consistent naming, `zarr::codec::` factories, trimmed
+signatures), the pure shard façade (`zarr::shard::place`/`extent`/`pack`) that
+gives external readers *and* writers byte-range access to sharded stores with
+no I/O bridge, a reader-only zstd build for WASM consumers, an installable
+CMake package, and shard-major write ordering.
 
 ### Changed
 - **Shard-major write ordering**: whole-array and region I/O now visit chunks

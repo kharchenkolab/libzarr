@@ -15,9 +15,9 @@
 // Macros, not constants: consumers need these preprocessor-testable.
 // NOLINTBEGIN(modernize-macro-to-enum,cppcoreguidelines-macro-to-enum)
 /// Library major version.
-#define LIBZARR_VERSION_MAJOR 0
+#define LIBZARR_VERSION_MAJOR 1
 /// Library minor version.
-#define LIBZARR_VERSION_MINOR 3
+#define LIBZARR_VERSION_MINOR 0
 /// Library patch version.
 #define LIBZARR_VERSION_PATCH 0
 // NOLINTEND(modernize-macro-to-enum,cppcoreguidelines-macro-to-enum)
