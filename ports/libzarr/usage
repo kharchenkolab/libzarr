@@ -1,0 +1,6 @@
+libzarr provides CMake targets:
+
+    find_package(libzarr CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE libzarr::libzarr)
+
+Codecs are opt-in features: vcpkg install "libzarr[zlib,zstd,blosc]"

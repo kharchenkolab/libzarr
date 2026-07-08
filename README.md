@@ -136,6 +136,13 @@ target_link_libraries(my_app PRIVATE libzarr::libzarr)
 Enable optional codecs at configure time with `-DLIBZARR_WITH_ZLIB=ON` (also `_BLOSC`,
 `_ZSTD`); the installed package re-resolves those dependencies for consumers automatically.
 
+Via **vcpkg**, use the overlay port shipped in this repo (codecs are features;
+CI installs and consumes it on every push):
+
+```sh
+vcpkg install "libzarr[zlib,zstd]" --overlay-ports=<libzarr-checkout>/ports
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

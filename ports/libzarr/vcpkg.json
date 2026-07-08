@@ -1,0 +1,37 @@
+{
+  "name": "libzarr",
+  "version": "1.0.0",
+  "description": "Header-only C++17 library for reading and writing the Zarr array storage format, v2 and v3. WASM-compatible core; interoperates byte-for-byte with zarr-python.",
+  "homepage": "https://github.com/kharchenkolab/libzarr",
+  "license": "MIT",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ],
+  "features": {
+    "blosc": {
+      "description": "blosc codec (c-blosc)",
+      "dependencies": [
+        "blosc"
+      ]
+    },
+    "zlib": {
+      "description": "gzip/zlib codecs",
+      "dependencies": [
+        "zlib"
+      ]
+    },
+    "zstd": {
+      "description": "zstd codec (zarr-python 3's default compressor)",
+      "dependencies": [
+        "zstd"
+      ]
+    }
+  }
+}

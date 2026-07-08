@@ -7,6 +7,12 @@ All notable changes to libzarr are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **vcpkg overlay port** (`ports/libzarr`): installs the tagged release with
+  codecs as vcpkg features (`libzarr[zlib,zstd,blosc]`), consumed via
+  `--overlay-ports` until the port is submitted upstream. A `vcpkg-port` CI job
+  installs it and builds a consumer through the vcpkg toolchain on every push.
+
 ## [1.0.0] - 2026-07-08
 
 First stable release. The public API — every symbol in `namespace zarr` outside

@@ -167,6 +167,21 @@ jobs:
       - run: bash tests/packaging/run_packaging_test.sh . "${RUNNER_TEMP}/pkg-zstd" -DLIBZARR_WITH_ZSTD=ON
       - run: bash tests/packaging/run_packaging_test.sh . "${RUNNER_TEMP}/pkg-blosc" -DLIBZARR_WITH_BLOSC=ON
 
+  # The self-hosted vcpkg overlay port (ports/libzarr) must install the tagged
+  # release and yield a working find_package(libzarr CONFIG) through the vcpkg
+  # toolchain — the exact path a vcpkg consumer takes.
+  vcpkg-port:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo chown -R "$USER" "$VCPKG_INSTALLATION_ROOT" || true
+      - run: vcpkg install "libzarr[zlib,zstd]" --overlay-ports=ports
+      - run: >
+          cmake -S tests/packaging -B build-consumer
+          -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
+      - run: cmake --build build-consumer
+      - run: ./build-consumer/consumer
+
   # The WASM gate: the zero-dependency core must compile under Emscripten and
   # the tests must pass under node. Required check — WASM compatibility is a
   # core constraint, not a feature.
