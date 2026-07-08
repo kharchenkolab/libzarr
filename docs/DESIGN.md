@@ -69,11 +69,13 @@ chunks of one shard plus its index — i.e. one shard object — and transiently
 seeding from an existing shard. The assembly flushes when writes move to another shard and
 at the end of every `Array` write operation. All-fill shards are erased rather than stored.
 
-**Write amplification.** Whole-array writes iterate inner chunks in C order, so a shard
-spanning `r` rows of inner chunks is assembled and rewritten `r` times. Read-modify-write
-keeps this correct; a shard-major write order (assemble each shard once) would eliminate the
-rewrites. The amplification is measurable on uncompressed sharded writes and negligible
-under any real compressor (see the baseline below).
+**Write ordering.** Whole-array and region writes visit chunks shard-major: the region's
+chunk box is partitioned by the shard grid (recursively for nested levels), leaves in C
+order, so all chunks of one shard object arrive consecutively and each shard is assembled
+and stored exactly once per write operation. A plain C-order walk would leave and re-enter
+every shard once per row of inner chunks it spans, rewriting it each time. Reads share the
+same traversal, so consecutive chunk reads keep hitting the same cached shard index. A
+regression test counts store writes per shard object to pin the assemble-once guarantee.
 
 **Enforcement.** `index_codecs` are restricted to `bytes` (+ optional `crc32c`) — the spec
 requires a fixed-size encoded index. Codecs wrapped *around* a shard (outer transpose,
@@ -89,26 +91,26 @@ on a Xeon E5-2697 v3 @ 2.60 GHz (zlib 1.2.11, libzstd 1.4.4, c-blosc 1.21.6); re
 
 | case           | write MiB/s | read MiB/s | stored/raw |
 |----------------|------------:|-----------:|-----------:|
-| raw            |        2868 |       2595 |       1.00 |
-| crc32c         |        1435 |       2018 |       1.00 |
-| gzip-1         |          40 |        156 |       0.69 |
-| gzip-5         |          19 |        159 |       0.65 |
-| zstd-0         |          73 |        466 |       0.64 |
-| blosc-lz4      |         932 |       1378 |       0.60 |
-| sharded raw    |         506 |        620 |       1.00 |
-| sharded zstd-0 |          70 |        342 |       0.64 |
+| raw            |        2802 |       2569 |       1.00 |
+| crc32c         |        1429 |       2005 |       1.00 |
+| gzip-1         |          44 |        157 |       0.69 |
+| gzip-5         |          18 |        160 |       0.65 |
+| zstd-0         |          73 |        458 |       0.64 |
+| blosc-lz4      |         931 |       1418 |       0.60 |
+| sharded raw    |        1156 |        651 |       1.00 |
+| sharded zstd-0 |          73 |        337 |       0.64 |
 
 Reading of the numbers: raw is memcpy-bound; compressed cases are codec-bound (the
 uncompressed `raw` row is the pipeline-overhead ceiling). The `crc32c` row is not
 CRC-bound — `detail::crc32c` dispatches at run time to the SSE4.2 CRC instruction (with a
 portable table fallback off x86), so the row is pipeline/memcpy-bound like `raw`. The
-sharded-raw gap vs raw (~5.7× write, ~4× read) has two sources: the C-order write path
-reassembles each shard once per row of inner chunks (4× here, see write amplification
-above), and each inner-chunk access pays key formatting/parsing plus an index lookup. The
-shard index checksum is a negligible fraction of it, and the whole gap disappears under a
-real compressor (zstd-0 sharded ≈ unsharded — both codec-bound). The optimizations that
-would close it are shard-major write ordering and cheaper chunk-key handling in
-`ShardStore::locate`.
+sharded-raw gap vs raw (~2.4× write, ~4× read) comes from per-inner-chunk key
+formatting/parsing plus an index lookup in `ShardStore::locate`, and, on write, the
+read-modify-write seed of each shard assembly (shard-major ordering means each shard is
+assembled exactly once — see write ordering above). The shard index checksum is a
+negligible fraction of it, and the whole gap disappears under a real compressor (zstd-0
+sharded ≈ unsharded — both codec-bound). The optimization that would close it is cheaper
+chunk-key handling in `ShardStore::locate`.
 
 ## Consolidated metadata
 

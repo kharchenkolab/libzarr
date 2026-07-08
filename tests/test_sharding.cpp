@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -119,6 +120,33 @@ json nested_doc() {
             {{{"name", "bytes"}, {"configuration", {{"endian", "little"}}}}, {{"name", "crc32c"}}}},
            {"index_location", "end"}}}}}}};
 }
+
+// MemoryStore that counts write() calls per key: observes how many times the
+// write path assembles and stores each shard object.
+class CountingStore final : public zarr::Store {
+ public:
+  [[nodiscard]] std::optional<Bytes> read(std::string_view key) override {
+    return inner_.read(key);
+  }
+  void write(std::string_view key, Bytes value) override {
+    ++writes_[std::string(key)];
+    inner_.write(key, std::move(value));
+  }
+  [[nodiscard]] bool exists(std::string_view key) override { return inner_.exists(key); }
+  void erase(std::string_view key) override { inner_.erase(key); }
+  [[nodiscard]] std::vector<std::string> list_prefix(std::string_view prefix) override {
+    return inner_.list_prefix(prefix);
+  }
+  [[nodiscard]] zarr::DirListing list_dir(std::string_view prefix) override {
+    return inner_.list_dir(prefix);
+  }
+
+  [[nodiscard]] const std::map<std::string, int>& writes() const { return writes_; }
+
+ private:
+  zarr::MemoryStore inner_;
+  std::map<std::string, int> writes_;
+};
 
 // pack() then extent() must round-trip every slot: extent recovers each
 // non-null slot's [offset, nbytes), and reading those bytes yields the chunk.
@@ -355,6 +383,48 @@ TEST_CASE("a packed shard reads back through Array") {
   CHECK(read_chunk({0, 1}) == raws[1]);                          // slot 1
   CHECK(read_chunk({1, 1}) == raws[3]);                          // slot 3
   CHECK(read_chunk({1, 0}) == std::vector<std::int32_t>(4, 0));  // slot 2: fill
+}
+
+TEST_CASE("writes assemble each shard exactly once (shard-major order)") {
+  // A C-order chunk walk would leave and re-enter every shard once per row of
+  // inner chunks, rewriting it each time; the shard-major walk must store each
+  // shard object exactly once per write operation.
+  auto store = std::make_shared<CountingStore>();
+
+  SUBCASE("whole-array write, single level") {
+    auto array = zarr::Array::create(store, "s", sharded_spec());
+    array.write(iota32(64).data(), 256);  // 2x2 shard grid, 2 chunk rows per shard
+    int shard_writes = 0;
+    for (const auto& kv : store->writes()) {
+      if (kv.first.rfind("s/c/", 0) == 0) {
+        CAPTURE(kv.first);
+        CHECK(kv.second == 1);
+        ++shard_writes;
+      }
+    }
+    CHECK(shard_writes == 4);  // every shard present, each stored once
+  }
+
+  SUBCASE("region write spanning shards") {
+    auto array = zarr::Array::create(store, "s", sharded_spec());
+    // Rows 2..5 x cols 0..7: crosses the shard-row boundary, touches all 4
+    // shards, two chunk rows in each.
+    std::vector<std::int32_t> region(32, 7);
+    array.write_region({2, 0}, {4, 8}, region.data(), region.size() * 4);
+    for (const auto& kv : store->writes()) {
+      if (kv.first.rfind("s/c/", 0) == 0) {
+        CAPTURE(kv.first);
+        CHECK(kv.second == 1);
+      }
+    }
+  }
+
+  SUBCASE("nested levels: the outer shard object is stored once") {
+    store->write("n/zarr.json", zarr::canonical_json_bytes(nested_doc()));
+    zarr::Array::open(store, "n").write(iota32(64).data(), 256);
+    REQUIRE(store->writes().count("n/c/0/0") == 1);
+    CHECK(store->writes().at("n/c/0/0") == 1);
+  }
 }
 
 TEST_CASE("read-modify-write preserves sibling inner chunks") {

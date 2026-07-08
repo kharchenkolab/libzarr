@@ -7,6 +7,14 @@ All notable changes to libzarr are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Shard-major write ordering**: whole-array and region I/O now visit chunks
+  grouped by shard object (recursively for nested levels), so each shard is
+  assembled and stored exactly once per write operation instead of once per row
+  of inner chunks it spans. Uncompressed sharded write throughput ~2.3× in the
+  bench baseline (497 → 1156 MiB/s; sharded reads also gain index-cache
+  locality); compressed sharded writes are codec-bound and unchanged. Written
+  bytes are identical — assembly is slot-ordered regardless of visit order.
+  Pinned by a store-write-counting regression test.
 - **API 1.0 freeze — sharding internals hidden**: `ShardStore` and `ShardParams`
   moved from `zarr::` into `zarr::detail_shard`. They were always auto-managed by
   `Array` (never user-constructed) and only partially implemented `Store` (listing

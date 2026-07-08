@@ -70,6 +70,21 @@ inline bool next_index(std::vector<std::uint64_t>& index,
   return false;
 }
 
+/// Advances a C-order odometer over the inclusive box [lo, hi]; returns false
+/// after the last index. Rank 0 iterates exactly once.
+inline bool next_index_box(std::vector<std::uint64_t>& index, const std::vector<std::uint64_t>& lo,
+                           const std::vector<std::uint64_t>& hi) {
+  std::size_t d = lo.size();
+  while (d-- > 0) {
+    if (index[d] < hi[d]) {
+      ++index[d];
+      return true;
+    }
+    index[d] = lo[d];
+  }
+  return false;
+}
+
 }  // namespace detail
 
 /// Parameters for Array::create.
@@ -490,7 +505,12 @@ class Array {
   }
 
   /// Invokes `fn(RegionChunk)` for every chunk intersecting the (non-empty,
-  /// validated) region, in C order.
+  /// validated) region, in shard-major order: all chunks of one shard object
+  /// come consecutively (recursively per shard level), so ShardStore assembles
+  /// and writes each shard exactly once per region write — a plain C-order
+  /// walk would rewrite a shard once per row of inner chunks it spans — and
+  /// reads keep hitting the same cached shard index. Unsharded arrays visit
+  /// in plain C order.
   template <typename Fn>
   void for_each_region_chunk(const std::vector<std::uint64_t>& origin,
                              const std::vector<std::uint64_t>& shape, const Fn& fn) const {
@@ -503,11 +523,11 @@ class Array {
     }
 
     RegionChunk rc;
-    rc.index = first;
     rc.origin_in_chunk.assign(rank, 0);
     rc.origin_in_region.assign(rank, 0);
     rc.box.assign(rank, 0);
-    while (true) {
+    visit_shard_major(0, first, last, [&](const std::vector<std::uint64_t>& index) {
+      rc.index = index;
       rc.covered = true;
       for (std::size_t d = 0; d < rank; ++d) {
         const std::uint64_t chunk_start = rc.index[d] * meta_.chunk_shape[d];
@@ -521,18 +541,46 @@ class Array {
         rc.covered = rc.covered && begin == chunk_start && end == valid_end;
       }
       fn(rc);
-      // odometer over [first, last]
-      std::size_t d = rank;
-      bool advanced = false;
-      while (d-- > 0) {
-        if (rc.index[d] < last[d]) {
-          ++rc.index[d];
-          advanced = true;
-          break;
-        }
-        rc.index[d] = first[d];
+    });
+  }
+
+  /// Visits the inclusive chunk box [lo, hi], partitioned by the shard grid of
+  /// `level` first (then recursively by inner levels), leaves in C order.
+  /// `leaf(index)` receives each chunk-grid index. With no shard levels this
+  /// is a plain C-order odometer.
+  template <typename Leaf>
+  void visit_shard_major(std::size_t level, const std::vector<std::uint64_t>& lo,
+                         const std::vector<std::uint64_t>& hi, const Leaf& leaf) const {
+    const std::size_t rank = lo.size();
+    if (level < meta_.shard_levels.size()) {
+      // Level-`level` shard extents in chunk-grid units; shard_shape is a
+      // validated multiple of chunk_shape.
+      std::vector<std::uint64_t> per(rank, 1);
+      std::vector<std::uint64_t> shard_lo(rank, 0);
+      std::vector<std::uint64_t> shard_hi(rank, 0);
+      for (std::size_t d = 0; d < rank; ++d) {
+        per[d] = meta_.shard_levels[level].shard_shape[d] / meta_.chunk_shape[d];
+        shard_lo[d] = lo[d] / per[d];
+        shard_hi[d] = hi[d] / per[d];
       }
-      if (!advanced) {
+      std::vector<std::uint64_t> shard = shard_lo;
+      std::vector<std::uint64_t> sub_lo(rank, 0);
+      std::vector<std::uint64_t> sub_hi(rank, 0);
+      while (true) {
+        for (std::size_t d = 0; d < rank; ++d) {
+          sub_lo[d] = std::max(lo[d], shard[d] * per[d]);
+          sub_hi[d] = std::min(hi[d], shard[d] * per[d] + per[d] - 1);
+        }
+        visit_shard_major(level + 1, sub_lo, sub_hi, leaf);
+        if (!detail::next_index_box(shard, shard_lo, shard_hi)) {
+          return;
+        }
+      }
+    }
+    std::vector<std::uint64_t> index = lo;
+    while (true) {
+      leaf(index);
+      if (!detail::next_index_box(index, lo, hi)) {
         return;
       }
     }
